@@ -1,0 +1,14 @@
+node_modules
+.next
+out
+# local-only data & secrets (Supabase replaces these in production)
+.env
+.env*.local
+prisma/dev.db
+prisma/*.db-journal
+storage
+# tests & fixtures aren't needed to run the app
+tests
+playwright-report
+test-results
+playwright/.cache

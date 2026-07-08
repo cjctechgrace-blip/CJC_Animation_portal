@@ -1,0 +1,36 @@
+# dependencies
+/node_modules
+
+# next
+/.next
+/out
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+
+# env
+.env
+.env*.local
+
+# database (local sqlite)
+/prisma/*.db
+/prisma/*.db-journal
+
+# uploaded media (local storage)
+/storage
+
+# playwright
+/test-results
+/playwright-report
+/playwright/.cache
+
+# typescript
+next-env.d.ts
+*.tsbuildinfo
