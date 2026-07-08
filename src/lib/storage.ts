@@ -46,6 +46,31 @@ export function publicUrl(key: string): string {
   return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${encoded}`;
 }
 
+/** Delete stored objects (video/frame files) to free space. Best effort. */
+export async function deleteObjects(keys: (string | null | undefined)[]): Promise<void> {
+  const valid = keys.filter((k): k is string => Boolean(k));
+  if (!valid.length) return;
+  if (isCloudStorage()) {
+    await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        apikey: SERVICE_KEY as string,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ prefixes: valid }),
+    }).catch(() => {});
+  } else {
+    for (const k of valid) {
+      try {
+        fs.unlinkSync(storagePathFor(k));
+      } catch {
+        // already gone — fine
+      }
+    }
+  }
+}
+
 /**
  * Store bytes and return the id to persist in the DB.
  * Cloud → "<prefix>/<filename>" object key; local → bare "<filename>".

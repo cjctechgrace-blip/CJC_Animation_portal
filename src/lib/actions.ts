@@ -10,6 +10,7 @@ import {
   createSignedUpload,
   extensionFor,
   isCloudStorage,
+  deleteObjects,
 } from "./storage";
 import { generateHiggsfieldPrompt } from "./prompt";
 import {
@@ -178,6 +179,58 @@ export async function addScenesAction(input: {
 
   revalidatePath(`/episodes/${input.episodeId}`);
   return { ok: true };
+}
+
+/** Delete a scene: its clip + frames from storage, then the row (comments cascade). */
+export async function deleteSceneAction(input: {
+  sceneId: string;
+}): Promise<{ ok: boolean; episodeId?: string; error?: string }> {
+  await requireUser();
+  const scene = await db.scene.findUnique({
+    where: { id: input.sceneId },
+    select: {
+      id: true,
+      episodeId: true,
+      videoFile: true,
+      comments: { select: { frameImage: true } },
+    },
+  });
+  if (!scene) return { ok: false, error: "Scene not found." };
+
+  await deleteObjects([scene.videoFile, ...scene.comments.map((c) => c.frameImage)]);
+  await db.scene.delete({ where: { id: scene.id } });
+
+  revalidatePath(`/episodes/${scene.episodeId}`);
+  return { ok: true, episodeId: scene.episodeId };
+}
+
+/** Delete an episode: every scene's clip + frames from storage, then the row (cascades). */
+export async function deleteEpisodeAction(input: {
+  episodeId: string;
+}): Promise<{ ok: boolean; projectId?: string; error?: string }> {
+  await requireUser();
+  const episode = await db.episode.findUnique({
+    where: { id: input.episodeId },
+    select: {
+      id: true,
+      projectId: true,
+      scenes: {
+        select: { videoFile: true, comments: { select: { frameImage: true } } },
+      },
+    },
+  });
+  if (!episode) return { ok: false, error: "Episode not found." };
+
+  const keys: (string | null)[] = [];
+  for (const s of episode.scenes) {
+    keys.push(s.videoFile);
+    for (const c of s.comments) keys.push(c.frameImage);
+  }
+  await deleteObjects(keys);
+  await db.episode.delete({ where: { id: episode.id } });
+
+  revalidatePath(`/projects/${episode.projectId}`);
+  return { ok: true, projectId: episode.projectId };
 }
 
 /** Persist a new scene order for an episode. */

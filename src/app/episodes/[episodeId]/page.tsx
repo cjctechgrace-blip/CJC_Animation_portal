@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { isCloudStorage, publicUrl } from "@/lib/storage";
 import { Header } from "@/components/Header";
 import { EpisodeView, type SceneData } from "./EpisodeView";
+import { DeleteEpisodeButton } from "./DeleteEpisodeButton";
 
 export const dynamic = "force-dynamic";
 
@@ -88,19 +89,26 @@ export default async function EpisodePage({
     <div className="flex min-h-screen flex-col">
       <Header user={user} />
       <div className="border-b border-line bg-panel">
-        <div className="mx-auto max-w-6xl px-6 py-3">
-          <Link
-            href={`/projects/${episode.project.id}`}
-            className="text-sm text-ink-faint hover:text-ink"
-          >
-            ← {episode.project.name}
-          </Link>
-          <h1 className="text-lg font-semibold tracking-tight">
-            {episode.title}
-          </h1>
-          {episode.description ? (
-            <p className="text-sm text-ink-soft">{episode.description}</p>
-          ) : null}
+        <div className="mx-auto flex max-w-6xl items-start justify-between gap-4 px-6 py-3">
+          <div>
+            <Link
+              href={`/projects/${episode.project.id}`}
+              className="text-sm text-ink-faint hover:text-ink"
+            >
+              ← {episode.project.name}
+            </Link>
+            <h1 className="text-lg font-semibold tracking-tight">
+              {episode.title}
+            </h1>
+            {episode.description ? (
+              <p className="text-sm text-ink-soft">{episode.description}</p>
+            ) : null}
+          </div>
+          <DeleteEpisodeButton
+            episodeId={episode.id}
+            projectId={episode.project.id}
+            title={episode.title}
+          />
         </div>
       </div>
 

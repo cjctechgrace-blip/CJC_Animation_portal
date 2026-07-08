@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { reorderScenesAction } from "@/lib/actions";
+import { reorderScenesAction, deleteSceneAction } from "@/lib/actions";
 import { SceneReview, type SceneComment } from "./SceneReview";
 import { AddScenesForm } from "./AddScenesForm";
 
@@ -60,6 +60,22 @@ export function EpisodeView({
     });
   }
 
+  function deleteScene(id: string, title: string) {
+    if (
+      !window.confirm(
+        `Delete "${title}"? This permanently removes its clip and all its feedback, and frees the storage space.`
+      )
+    )
+      return;
+    const next = items.filter((s) => s.id !== id);
+    setItems(next);
+    if (selectedId === id) setSelectedId(next[0]?.id ?? null);
+    startReorder(async () => {
+      await deleteSceneAction({ sceneId: id });
+      router.refresh();
+    });
+  }
+
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-6">
       {/* scene strip (drag to reorder) */}
@@ -93,12 +109,24 @@ export function EpisodeView({
                 }}
                 data-testid="scene-tab"
                 onClick={() => setSelectedId(s.id)}
-                className={`flex min-w-[150px] cursor-pointer flex-col items-start rounded-lg border px-3 py-2 text-left transition-colors ${
+                className={`relative flex min-w-[150px] cursor-pointer flex-col items-start rounded-lg border px-3 py-2 pr-7 text-left transition-colors ${
                   active
                     ? "border-reel bg-reel-soft"
                     : "border-line bg-panel hover:bg-paper"
                 } ${isOver ? "ring-2 ring-accent" : ""}`}
               >
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteScene(s.id, s.title);
+                  }}
+                  data-testid="delete-scene"
+                  title="Delete scene"
+                  className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded text-ink-faint hover:bg-red-50 hover:text-red-600"
+                >
+                  ×
+                </button>
                 <span className="flex w-full items-center gap-1.5 text-xs font-mono text-ink-faint">
                   <span
                     className="cursor-grab select-none text-ink-faint/70"
