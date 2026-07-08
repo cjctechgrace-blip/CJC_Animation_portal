@@ -7,6 +7,7 @@ import {
   addReplyAction,
   toggleResolvedAction,
   generatePromptAction,
+  deleteCommentAction,
 } from "@/lib/actions";
 import { formatTimecode, formatWhen, initialsOf } from "@/lib/format";
 import {
@@ -545,6 +546,23 @@ function CommentCard({
     });
   }
 
+  function deleteThis() {
+    if (!window.confirm("Delete this note and its replies? This can't be undone."))
+      return;
+    startTransition(async () => {
+      await deleteCommentAction({ commentId: comment.id });
+      onChanged();
+    });
+  }
+
+  function deleteReply(id: string) {
+    if (!window.confirm("Delete this reply?")) return;
+    startTransition(async () => {
+      await deleteCommentAction({ commentId: id });
+      onChanged();
+    });
+  }
+
   return (
     <li
       className={`card p-3 ${comment.resolved ? "opacity-70" : ""} ${
@@ -629,11 +647,20 @@ function CommentCard({
       {comment.replies.length > 0 ? (
         <ul className="mt-2 flex flex-col gap-2 border-l-2 border-line pl-3">
           {comment.replies.map((r) => (
-            <li key={r.id} className="text-sm">
+            <li key={r.id} className="group text-sm">
               <span className="font-medium">{r.authorName}</span>{" "}
               <span className="text-[11px] text-ink-faint">
                 {formatWhen(r.createdAt)}
               </span>
+              <button
+                type="button"
+                onClick={() => deleteReply(r.id)}
+                disabled={isPending}
+                data-testid="delete-reply"
+                className="ml-2 text-[11px] font-medium text-red-500 opacity-0 hover:underline group-hover:opacity-100"
+              >
+                delete
+              </button>
               <p className="whitespace-pre-wrap text-ink-soft">{r.body}</p>
             </li>
           ))}
@@ -668,6 +695,15 @@ function CommentCard({
           className="font-medium text-accent-ink hover:underline"
         >
           {genPending ? "Generating…" : prompt ? "↻ Regenerate prompt" : "✨ Make prompt"}
+        </button>
+        <button
+          type="button"
+          onClick={deleteThis}
+          disabled={isPending}
+          data-testid="delete-comment"
+          className="ml-auto font-medium text-red-500 hover:underline"
+        >
+          Delete
         </button>
       </div>
 

@@ -353,6 +353,33 @@ export async function toggleResolvedAction(input: {
   return { ok: true, resolved: updated.resolved };
 }
 
+/** Delete a comment/annotation (or a reply). Cascades its replies + discussion
+ * references, and purges its frame image from storage. */
+export async function deleteCommentAction(input: {
+  commentId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireUser();
+  const comment = await db.comment.findUnique({
+    where: { id: input.commentId },
+    select: {
+      id: true,
+      frameImage: true,
+      scene: { select: { episodeId: true } },
+      replies: { select: { frameImage: true } },
+    },
+  });
+  if (!comment) return { ok: false, error: "Note not found." };
+
+  await deleteObjects([
+    comment.frameImage,
+    ...comment.replies.map((r) => r.frameImage),
+  ]);
+  await db.comment.delete({ where: { id: comment.id } });
+
+  revalidatePath(`/episodes/${comment.scene.episodeId}`);
+  return { ok: true };
+}
+
 /* ------------------------ AI prompt (Higgsfield) ------------------------ */
 
 export async function generatePromptAction(input: {
