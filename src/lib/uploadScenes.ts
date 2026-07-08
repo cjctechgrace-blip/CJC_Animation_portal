@@ -1,5 +1,4 @@
 import { createSignedUploadAction } from "@/lib/actions";
-import { compressToUnder } from "@/lib/compressVideo";
 
 export type SceneUpload = { title: string; videoKey: string; mimeType: string };
 
@@ -12,10 +11,7 @@ export type UploadStatus = {
 };
 
 const MB = 1024 * 1024;
-// Supabase free tier caps files at 50MB. Compress anything close to it,
-// targeting comfortably under.
-const COMPRESS_ABOVE = 49 * MB;
-const TARGET_BYTES = 47 * MB;
+const LIMIT = 50 * MB; // Supabase free-tier per-file cap
 
 function putWithProgress(
   url: string,
@@ -33,7 +29,7 @@ function putWithProgress(
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve();
       else if (xhr.status === 413)
-        reject(new Error("A clip is still over the 50 MB limit after compression."));
+        reject(new Error("This clip is over the 50 MB storage limit."));
       else reject(new Error(`Upload failed (${xhr.status}).`));
     };
     xhr.onerror = () => reject(new Error("Upload failed — check your connection."));
@@ -41,21 +37,20 @@ function putWithProgress(
   });
 }
 
-/** Compress (if oversized) then upload each clip directly to Supabase Storage. */
+/** Upload each clip directly to Supabase Storage. */
 export async function uploadScenesToStorage(
   files: File[],
   onProgress: (status: UploadStatus) => void
 ): Promise<SceneUpload[]> {
   const results: SceneUpload[] = [];
   for (let i = 0; i < files.length; i++) {
-    let file = files[i];
+    const file = files[i];
     const total = files.length;
-    const origName = file.name;
 
-    if (file.size > COMPRESS_ABOVE) {
-      onProgress({ index: i, total, pct: 0, phase: "compress", note: "Preparing…" });
-      file = await compressToUnder(file, TARGET_BYTES, (pct, note) =>
-        onProgress({ index: i, total, pct, phase: "compress", note })
+    if (file.size > LIMIT) {
+      throw new Error(
+        `"${file.name}" is ${(file.size / MB).toFixed(0)} MB, over the 50 MB limit. ` +
+          `Use shorter clips, or ask to enable large-video hosting (Mux) / a bigger storage plan.`
       );
     }
 
@@ -70,7 +65,7 @@ export async function uploadScenesToStorage(
     );
 
     results.push({
-      title: origName.replace(/\.[^.]+$/, ""),
+      title: file.name.replace(/\.[^.]+$/, ""),
       videoKey: up.key,
       mimeType,
     });

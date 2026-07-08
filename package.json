@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && node scripts/copy-ffmpeg.mjs && next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
@@ -17,9 +17,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
-    "@ffmpeg/core": "^0.12.6",
-    "@ffmpeg/ffmpeg": "^0.12.10",
-    "@ffmpeg/util": "^0.12.1",
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3",
     "next": "14.2.15",

@@ -139,7 +139,7 @@ export function NewEpisodeForm({
         />
         <p className="mt-1 text-xs text-ink-faint">
           Select every clip in your scene folder (open the folder, then Ctrl+A).
-          Clips over 50 MB are automatically compressed to fit.
+          Each clip must be under 50 MB.
           {files.length > 0 ? ` ${files.length} clip(s) selected.` : ""}
         </p>
       </div>
