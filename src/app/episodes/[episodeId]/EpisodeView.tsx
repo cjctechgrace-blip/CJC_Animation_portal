@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { reorderScenesAction, deleteSceneAction } from "@/lib/actions";
 import { SceneReview, type SceneComment } from "./SceneReview";
 import { AddScenesForm } from "./AddScenesForm";
+import {
+  EpisodeDiscussion,
+  type DiscussionPost,
+} from "./EpisodeDiscussion";
 
 export type SceneData = {
   id: string;
@@ -19,10 +23,12 @@ export function EpisodeView({
   episodeId,
   cloud,
   scenes,
+  posts,
 }: {
   episodeId: string;
   cloud: boolean;
   scenes: SceneData[];
+  posts: DiscussionPost[];
 }) {
   const router = useRouter();
   const [items, setItems] = useState<SceneData[]>(scenes);
@@ -32,6 +38,19 @@ export function EpisodeView({
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const dragIndex = useRef<number | null>(null);
   const [, startReorder] = useTransition();
+  const reviewRef = useRef<HTMLDivElement>(null);
+  const [activateReq, setActivateReq] = useState<{
+    commentId: string;
+    nonce: number;
+  } | null>(null);
+
+  function openAnnotation(sceneId: string, commentId: string) {
+    setSelectedId(sceneId);
+    setActivateReq({ commentId, nonce: activateReq ? activateReq.nonce + 1 : 1 });
+    requestAnimationFrame(() =>
+      reviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    );
+  }
 
   // Re-sync when the server sends a new order (e.g. after add/reorder/refresh).
   const sig = scenes.map((s) => s.id).join(",");
@@ -162,21 +181,32 @@ export function EpisodeView({
         <AddScenesForm episodeId={episodeId} cloud={cloud} />
       </div>
 
-      {selected ? (
-        <SceneReview
-          key={selected.id}
-          sceneId={selected.id}
-          hasVideo={selected.hasVideo}
-          videoSrc={selected.videoSrc}
-          initialComments={selected.comments}
-        />
-      ) : (
-        <div className="card grid place-items-center px-6 py-16 text-center">
-          <p className="text-ink-soft">
-            No scenes yet. Add your scene clips to start reviewing.
-          </p>
-        </div>
-      )}
+      <div ref={reviewRef} className="scroll-mt-4">
+        {selected ? (
+          <SceneReview
+            key={selected.id}
+            sceneId={selected.id}
+            hasVideo={selected.hasVideo}
+            videoSrc={selected.videoSrc}
+            initialComments={selected.comments}
+            activateCommentId={activateReq?.commentId ?? null}
+            activateNonce={activateReq?.nonce ?? 0}
+          />
+        ) : (
+          <div className="card grid place-items-center px-6 py-16 text-center">
+            <p className="text-ink-soft">
+              No scenes yet. Add your scene clips to start reviewing.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <EpisodeDiscussion
+        episodeId={episodeId}
+        scenes={items}
+        posts={posts}
+        onOpenAnnotation={openAnnotation}
+      />
     </div>
   );
 }

@@ -19,11 +19,13 @@ model User {
   role         String   @default("member") // "admin" | "member"
   createdAt    DateTime @default(now())
 
-  sessions Session[]
-  projects Project[]
-  episodes Episode[]
-  scenes   Scene[]
-  comments Comment[]
+  sessions  Session[]
+  projects  Project[]
+  episodes  Episode[]
+  scenes    Scene[]
+  comments  Comment[]
+  posts     Post[]
+  postVotes PostVote[]
 }
 
 model Session {
@@ -60,6 +62,7 @@ model Episode {
   createdAt   DateTime @default(now())
 
   scenes Scene[]
+  posts  Post[]
 
   @@index([projectId])
 }
@@ -106,6 +109,51 @@ model Comment {
   resolved   Boolean  @default(false)
   createdAt  DateTime @default(now())
 
+  postRefs   PostRef[]
+
   @@index([sceneId])
   @@index([parentId])
+}
+
+// Episode-level discussion (forum/Reddit-style): threaded posts, votes, and
+// references to scene annotations (Comments).
+model Post {
+  id        String   @id @default(cuid())
+  episodeId String
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  body      String
+  parentId  String?
+  parent    Post?    @relation("PostThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Post[]   @relation("PostThread")
+  createdAt DateTime @default(now())
+
+  votes PostVote[]
+  refs  PostRef[]
+
+  @@index([episodeId])
+  @@index([parentId])
+}
+
+model PostVote {
+  id     String @id @default(cuid())
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([postId])
+}
+
+model PostRef {
+  id        String  @id @default(cuid())
+  postId    String
+  post      Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId String
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, commentId])
+  @@index([postId])
 }

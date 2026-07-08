@@ -6,6 +6,7 @@ import { isCloudStorage, publicUrl } from "@/lib/storage";
 import { Header } from "@/components/Header";
 import { EpisodeView, type SceneData } from "./EpisodeView";
 import { DeleteEpisodeButton } from "./DeleteEpisodeButton";
+import type { DiscussionPost } from "./EpisodeDiscussion";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,62 @@ export default async function EpisodePage({
     };
   });
 
+  // Episode-level discussion posts (threaded, with votes + annotation refs).
+  const refInclude = {
+    include: {
+      comment: {
+        select: {
+          id: true,
+          timecodeMs: true,
+          body: true,
+          scene: { select: { id: true, order: true } },
+        },
+      },
+    },
+  };
+  const base = {
+    author: { select: { name: true } },
+    votes: { select: { userId: true } },
+    refs: refInclude,
+  };
+  const rawPosts = await db.post.findMany({
+    where: { episodeId: params.episodeId, parentId: null },
+    orderBy: { createdAt: "asc" },
+    include: {
+      ...base,
+      replies: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          ...base,
+          replies: { orderBy: { createdAt: "asc" }, include: base },
+        },
+      },
+    },
+  });
+
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const serializePost = (p: any): DiscussionPost => ({
+    id: p.id,
+    body: p.body,
+    authorName: p.author.name,
+    createdAt: p.createdAt.toISOString(),
+    score: p.votes.length,
+    votedByMe: p.votes.some((v: any) => v.userId === user.id),
+    refs: p.refs.map((r: any) => ({
+      commentId: r.comment.id,
+      sceneId: r.comment.scene.id,
+      sceneNumber: r.comment.scene.order + 1,
+      timecodeMs: r.comment.timecodeMs,
+      snippet: (r.comment.body as string).slice(0, 60),
+    })),
+    replies: (p.replies ?? []).map(serializePost),
+  });
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
+  const posts = rawPosts
+    .map(serializePost)
+    .sort((a, b) => b.score - a.score || (a.createdAt < b.createdAt ? 1 : -1));
+
   return (
     <div className="flex min-h-screen flex-col">
       <Header user={user} />
@@ -112,7 +169,12 @@ export default async function EpisodePage({
         </div>
       </div>
 
-      <EpisodeView episodeId={episode.id} cloud={cloud} scenes={scenes} />
+      <EpisodeView
+        episodeId={episode.id}
+        cloud={cloud}
+        scenes={scenes}
+        posts={posts}
+      />
     </div>
   );
 }

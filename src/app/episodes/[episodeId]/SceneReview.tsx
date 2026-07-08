@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   addCommentAction,
@@ -78,11 +78,15 @@ export function SceneReview({
   hasVideo,
   videoSrc,
   initialComments,
+  activateCommentId,
+  activateNonce,
 }: {
   sceneId: string;
   hasVideo: boolean;
   videoSrc: string | null;
   initialComments: SceneComment[];
+  activateCommentId?: string | null;
+  activateNonce?: number;
 }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -107,6 +111,22 @@ export function SceneReview({
 
   const shownMark = draftMark ?? pendingMark ?? (marking ? null : activeComment?.mark ?? null);
   const shownKind: "draft" | "active" = draftMark || pendingMark ? "draft" : "active";
+
+  // Activate an annotation on request (e.g. clicked from the discussion).
+  useEffect(() => {
+    if (!activateCommentId) return;
+    const c = initialComments.find((x) => x.id === activateCommentId);
+    if (!c) return;
+    setMarking(false);
+    setPendingMark(null);
+    setActiveId(c.id);
+    if (c.timecodeMs != null && videoRef.current) {
+      videoRef.current.currentTime = c.timecodeMs / 1000;
+      videoRef.current.pause();
+      setCurrentMs(c.timecodeMs);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activateNonce, activateCommentId]);
 
   function normFromClient(clientX: number, clientY: number) {
     const rect = overlayRef.current!.getBoundingClientRect();

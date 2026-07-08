@@ -398,6 +398,81 @@ export async function generatePromptAction(input: {
   }
 }
 
+/* ------------------------ episode discussion ------------------------ */
+
+export async function createPostAction(input: {
+  episodeId: string;
+  body: string;
+  parentId?: string | null;
+  refCommentIds?: string[];
+}): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const body = input.body.trim();
+  if (!body) return { ok: false, error: "Write something first." };
+
+  const episode = await db.episode.findUnique({
+    where: { id: input.episodeId },
+    select: { id: true },
+  });
+  if (!episode) return { ok: false, error: "Episode not found." };
+
+  let parentId: string | null = null;
+  if (input.parentId) {
+    const parent = await db.post.findUnique({
+      where: { id: input.parentId },
+      select: { id: true, episodeId: true },
+    });
+    if (parent && parent.episodeId === input.episodeId) parentId = parent.id;
+  }
+
+  const post = await db.post.create({
+    data: { episodeId: input.episodeId, authorId: user.id, body, parentId },
+  });
+
+  const refIds = Array.from(new Set(input.refCommentIds ?? [])).slice(0, 10);
+  if (refIds.length) {
+    const valid = await db.comment.findMany({
+      where: { id: { in: refIds }, scene: { episodeId: input.episodeId } },
+      select: { id: true },
+    });
+    if (valid.length) {
+      await db.postRef.createMany({
+        data: valid.map((v) => ({ postId: post.id, commentId: v.id })),
+      });
+    }
+  }
+
+  revalidatePath(`/episodes/${input.episodeId}`);
+  return { ok: true };
+}
+
+export async function togglePostVoteAction(input: {
+  postId: string;
+}): Promise<{ ok: boolean; score?: number; voted?: boolean; error?: string }> {
+  const user = await requireUser();
+  const post = await db.post.findUnique({
+    where: { id: input.postId },
+    select: { id: true, episodeId: true },
+  });
+  if (!post) return { ok: false, error: "Post not found." };
+
+  const existing = await db.postVote.findUnique({
+    where: { postId_userId: { postId: post.id, userId: user.id } },
+  });
+  let voted: boolean;
+  if (existing) {
+    await db.postVote.delete({ where: { id: existing.id } });
+    voted = false;
+  } else {
+    await db.postVote.create({ data: { postId: post.id, userId: user.id } });
+    voted = true;
+  }
+  const score = await db.postVote.count({ where: { postId: post.id } });
+
+  revalidatePath(`/episodes/${post.episodeId}`);
+  return { ok: true, score, voted };
+}
+
 /* Ensure a caller is authenticated (used by route handlers indirectly). */
 export async function currentUserOrNull() {
   return getCurrentUser();
