@@ -26,6 +26,7 @@ model User {
   comments  Comment[]
   posts     Post[]
   postVotes PostVote[]
+  edits     Edit[]
 }
 
 model Session {
@@ -84,8 +85,25 @@ model Scene {
   createdAt   DateTime @default(now())
 
   comments Comment[]
+  edits    Edit[]
 
   @@index([episodeId])
+}
+
+// A non-destructive edit "recipe" for a scene: an ordered list of trimmed
+// segments (which may pull from other scenes = merge). Stored as JSON; plays
+// the original clips live, never rendered to a new file.
+model Edit {
+  id          String   @id @default(cuid())
+  sceneId     String
+  scene       Scene    @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  name        String
+  data        String   @default("{\"segments\":[]}")
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([sceneId])
 }
 
 model Comment {

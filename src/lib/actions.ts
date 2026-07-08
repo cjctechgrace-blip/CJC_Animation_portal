@@ -398,6 +398,86 @@ export async function generatePromptAction(input: {
   }
 }
 
+/* --------------------------- edits (video editor) --------------------------- */
+
+type EditSegment = {
+  sourceSceneId: string;
+  inMs: number;
+  outMs: number;
+  muted: boolean;
+};
+
+export async function createEditAction(input: {
+  sceneId: string;
+  name: string;
+}): Promise<{
+  ok: boolean;
+  edit?: { id: string; name: string; data: string };
+  error?: string;
+}> {
+  const user = await requireUser();
+  const scene = await db.scene.findUnique({
+    where: { id: input.sceneId },
+    select: { id: true, episodeId: true },
+  });
+  if (!scene) return { ok: false, error: "Scene not found." };
+
+  const name = input.name.trim() || "Edit";
+  const data = JSON.stringify({
+    segments: [{ sourceSceneId: scene.id, inMs: 0, outMs: 0, muted: false }],
+  });
+  const edit = await db.edit.create({
+    data: { sceneId: scene.id, name, data, createdById: user.id },
+  });
+
+  revalidatePath(`/episodes/${scene.episodeId}`);
+  return { ok: true, edit: { id: edit.id, name: edit.name, data: edit.data } };
+}
+
+export async function updateEditAction(input: {
+  editId: string;
+  name?: string;
+  segments: EditSegment[];
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireUser();
+  const edit = await db.edit.findUnique({
+    where: { id: input.editId },
+    select: { id: true, scene: { select: { episodeId: true } } },
+  });
+  if (!edit) return { ok: false, error: "Edit not found." };
+
+  const segments = (input.segments ?? []).map((s) => ({
+    sourceSceneId: String(s.sourceSceneId),
+    inMs: Math.max(0, Math.round(s.inMs || 0)),
+    outMs: Math.max(0, Math.round(s.outMs || 0)),
+    muted: Boolean(s.muted),
+  }));
+  await db.edit.update({
+    where: { id: input.editId },
+    data: {
+      ...(input.name != null ? { name: input.name.trim() || "Edit" } : {}),
+      data: JSON.stringify({ segments }),
+    },
+  });
+
+  revalidatePath(`/episodes/${edit.scene.episodeId}`);
+  return { ok: true };
+}
+
+export async function deleteEditAction(input: {
+  editId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireUser();
+  const edit = await db.edit.findUnique({
+    where: { id: input.editId },
+    select: { id: true, scene: { select: { episodeId: true } } },
+  });
+  if (!edit) return { ok: false, error: "Edit not found." };
+  await db.edit.delete({ where: { id: input.editId } });
+  revalidatePath(`/episodes/${edit.scene.episodeId}`);
+  return { ok: true };
+}
+
 /* ------------------------ episode discussion ------------------------ */
 
 export async function createPostAction(input: {

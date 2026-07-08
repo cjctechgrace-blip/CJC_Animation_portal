@@ -35,6 +35,10 @@ export default async function EpisodePage({
       scenes: {
         orderBy: { order: "asc" },
         include: {
+          edits: {
+            select: { id: true, name: true, data: true },
+            orderBy: { createdAt: "asc" },
+          },
           comments: {
             where: { parentId: null },
             orderBy: [{ timecodeMs: "asc" }, { createdAt: "asc" }],
@@ -83,6 +87,7 @@ export default async function EpisodePage({
         : null,
       openCount: comments.filter((c) => !c.resolved).length,
       comments,
+      edits: s.edits.map((e) => ({ id: e.id, name: e.name, data: e.data })),
     };
   });
 

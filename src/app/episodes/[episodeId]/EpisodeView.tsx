@@ -9,6 +9,7 @@ import {
   EpisodeDiscussion,
   type DiscussionPost,
 } from "./EpisodeDiscussion";
+import type { EditRecord } from "./SceneEditor";
 
 export type SceneData = {
   id: string;
@@ -17,6 +18,7 @@ export type SceneData = {
   videoSrc: string | null;
   openCount: number;
   comments: SceneComment[];
+  edits: EditRecord[];
 };
 
 export function EpisodeView({
@@ -61,6 +63,12 @@ export function EpisodeView({
 
   const selected =
     items.find((s) => s.id === selectedId) ?? items[0] ?? null;
+  const episodeScenes = items.map((s, i) => ({
+    id: s.id,
+    number: i + 1,
+    title: s.title,
+    videoSrc: s.videoSrc,
+  }));
 
   function drop(target: number) {
     const from = dragIndex.current;
@@ -191,6 +199,8 @@ export function EpisodeView({
             initialComments={selected.comments}
             activateCommentId={activateReq?.commentId ?? null}
             activateNonce={activateReq?.nonce ?? 0}
+            episodeScenes={episodeScenes}
+            edits={selected.edits}
           />
         ) : (
           <div className="card grid place-items-center px-6 py-16 text-center">

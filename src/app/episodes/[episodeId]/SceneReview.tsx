@@ -9,6 +9,11 @@ import {
   generatePromptAction,
 } from "@/lib/actions";
 import { formatTimecode, formatWhen, initialsOf } from "@/lib/format";
+import {
+  SceneEditor,
+  type EpisodeSceneRef,
+  type EditRecord,
+} from "./SceneEditor";
 
 type Reply = {
   id: string;
@@ -80,6 +85,8 @@ export function SceneReview({
   initialComments,
   activateCommentId,
   activateNonce,
+  episodeScenes,
+  edits,
 }: {
   sceneId: string;
   hasVideo: boolean;
@@ -87,7 +94,10 @@ export function SceneReview({
   initialComments: SceneComment[];
   activateCommentId?: string | null;
   activateNonce?: number;
+  episodeScenes: EpisodeSceneRef[];
+  edits: EditRecord[];
 }) {
+  const [mode, setMode] = useState<"original" | "edit">("original");
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -261,6 +271,42 @@ export function SceneReview({
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
       <section className="flex flex-col gap-4">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMode("original")}
+            data-testid="mode-original"
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              mode === "original"
+                ? "bg-reel-soft text-reel"
+                : "text-ink-faint hover:bg-paper"
+            }`}
+          >
+            ▶ Original
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("edit")}
+            data-testid="mode-edit"
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              mode === "edit"
+                ? "bg-reel-soft text-reel"
+                : "text-ink-faint hover:bg-paper"
+            }`}
+          >
+            ✂ Edit{edits.length > 0 ? ` (${edits.length})` : ""}
+          </button>
+        </div>
+
+        {mode === "edit" ? (
+          <SceneEditor
+            sceneId={sceneId}
+            originalSrc={videoSrc}
+            episodeScenes={episodeScenes}
+            edits={edits}
+          />
+        ) : (
+          <>
         <div className="relative overflow-hidden rounded-xl border border-line bg-black">
           {hasVideo && videoSrc ? (
             <video
@@ -401,6 +447,8 @@ export function SceneReview({
             </button>
           </div>
         </div>
+          </>
+        )}
       </section>
 
       <aside className="flex flex-col">
