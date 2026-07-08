@@ -97,6 +97,7 @@ export function SceneReview({
   const [pendingMark, setPendingMark] = useState<Mark | null>(null);
   const [draftMark, setDraftMark] = useState<Mark | null>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
+  const draftRef = useRef<Mark | null>(null);
   // which comment's mark is currently revealed on the video
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -107,55 +108,63 @@ export function SceneReview({
   const shownMark = draftMark ?? pendingMark ?? (marking ? null : activeComment?.mark ?? null);
   const shownKind: "draft" | "active" = draftMark || pendingMark ? "draft" : "active";
 
-  function norm(e: React.PointerEvent) {
+  function normFromClient(clientX: number, clientY: number) {
     const rect = overlayRef.current!.getBoundingClientRect();
     return {
-      x: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
-      y: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
+      x: Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)),
+      y: Math.min(1, Math.max(0, (clientY - rect.top) / rect.height)),
     };
+  }
+
+  function setDraft2(m: Mark | null) {
+    draftRef.current = m;
+    setDraftMark(m);
   }
 
   function startMarking() {
     videoRef.current?.pause();
     setActiveId(null);
     setPendingMark(null);
-    setDraftMark(null);
+    setDraft2(null);
     setError(null);
     setMarking(true);
   }
 
-  function onDown(e: React.PointerEvent) {
+  function beginDraw(e: React.MouseEvent) {
     if (!marking) return;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-    const p = norm(e);
-    startRef.current = p;
-    setDraftMark({ type: "point", x: p.x, y: p.y, w: 0, h: 0 });
-  }
-  function onMove(e: React.PointerEvent) {
-    if (!marking || !startRef.current) return;
-    const s = startRef.current;
-    const p = norm(e);
-    setDraftMark({
-      type: "rect",
-      x: Math.min(s.x, p.x),
-      y: Math.min(s.y, p.y),
-      w: Math.abs(p.x - s.x),
-      h: Math.abs(p.y - s.y),
-    });
-  }
-  function onUp() {
-    if (!marking || !startRef.current) return;
-    const d = draftMark;
-    startRef.current = null;
-    setDraftMark(null);
-    if (!d) return;
-    // tiny drag → treat as a spot
-    const final: Mark =
-      d.type === "rect" && (d.w < 0.02 || d.h < 0.02)
-        ? { type: "point", x: d.x, y: d.y, w: 0, h: 0 }
-        : d;
-    setPendingMark(final);
-    setMarking(false);
+    e.preventDefault();
+    const s = normFromClient(e.clientX, e.clientY);
+    startRef.current = s;
+    setDraft2({ type: "point", x: s.x, y: s.y, w: 0, h: 0 });
+
+    const move = (ev: MouseEvent) => {
+      const st = startRef.current;
+      if (!st) return;
+      const p = normFromClient(ev.clientX, ev.clientY);
+      setDraft2({
+        type: "rect",
+        x: Math.min(st.x, p.x),
+        y: Math.min(st.y, p.y),
+        w: Math.abs(p.x - st.x),
+        h: Math.abs(p.y - st.y),
+      });
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      const d = draftRef.current;
+      startRef.current = null;
+      setDraft2(null);
+      if (!d) return;
+      const final: Mark =
+        d.type === "rect" && (d.w < 0.02 || d.h < 0.02)
+          ? { type: "point", x: d.x, y: d.y, w: 0, h: 0 }
+          : d;
+      setPendingMark(final);
+      setMarking(false);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
   }
 
   /** Capture the current frame with the mark drawn on it (best effort). */
@@ -256,9 +265,7 @@ export function SceneReview({
             <div
               ref={overlayRef}
               data-testid="video-overlay"
-              onPointerDown={onDown}
-              onPointerMove={onMove}
-              onPointerUp={onUp}
+              onMouseDown={beginDraw}
               className={`absolute inset-0 ${
                 marking ? "cursor-crosshair" : "pointer-events-none"
               }`}
