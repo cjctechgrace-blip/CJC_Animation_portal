@@ -1,16 +1,39 @@
 // In-browser video compression via ffmpeg.wasm. Re-encodes an oversized clip to
 // H.264, lowering the bitrate each pass until it fits under the size limit.
-// Loaded lazily (the wasm core is ~32MB) and only in the browser.
+// The UMD build is self-hosted under /public/ffmpeg and loaded via a <script>
+// tag so its worker's publicPath resolves correctly (Next's bundler does not).
 
 type FFmpegInstance = import("@ffmpeg/ffmpeg").FFmpeg;
 
-let ffmpegPromise: Promise<FFmpegInstance> | null = null;
+declare global {
+  interface Window {
+    FFmpegWASM?: { FFmpeg: new () => FFmpegInstance };
+  }
+}
 
+let scriptPromise: Promise<void> | null = null;
+function loadFFmpegScript(): Promise<void> {
+  if (window.FFmpegWASM) return Promise.resolve();
+  if (!scriptPromise) {
+    scriptPromise = new Promise<void>((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "/ffmpeg/ffmpeg.js";
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("Failed to load the video compressor."));
+      document.head.appendChild(s);
+    });
+  }
+  return scriptPromise;
+}
+
+let ffmpegPromise: Promise<FFmpegInstance> | null = null;
 async function getFFmpeg(): Promise<FFmpegInstance> {
   if (!ffmpegPromise) {
     ffmpegPromise = (async () => {
-      const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-      const ff = new FFmpeg();
+      await loadFFmpegScript();
+      const ctor = window.FFmpegWASM?.FFmpeg;
+      if (!ctor) throw new Error("Video compressor unavailable.");
+      const ff = new ctor();
       await ff.load({
         coreURL: "/ffmpeg/ffmpeg-core.js",
         wasmURL: "/ffmpeg/ffmpeg-core.wasm",
@@ -47,12 +70,12 @@ export async function compressToUnder(
   maxBytes: number,
   onProgress: CompressProgress
 ): Promise<File> {
-  const { fetchFile } = await import("@ffmpeg/util");
+  onProgress(0, "Loading compressor…");
   const ffmpeg = await getFFmpeg();
 
   const duration = (await getDurationSeconds(file)) || 30;
   const inName = "input" + (file.name.match(/\.[^.]+$/)?.[0] || ".mp4");
-  await ffmpeg.writeFile(inName, await fetchFile(file));
+  await ffmpeg.writeFile(inName, new Uint8Array(await file.arrayBuffer()));
 
   const audioKbps = 128;
   const targetBytes = Math.floor(maxBytes * 0.92); // headroom
@@ -94,7 +117,6 @@ export async function compressToUnder(
 
       if (data.byteLength <= maxBytes) break;
 
-      // still too big → tighten for the next pass
       const ratio = maxBytes / data.byteLength;
       totalKbps = Math.max(150, Math.floor(totalKbps * ratio * 0.9));
       if (totalKbps < 900 && (maxHeight === null || maxHeight > 720)) maxHeight = 720;
