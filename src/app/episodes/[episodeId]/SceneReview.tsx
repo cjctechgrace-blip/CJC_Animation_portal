@@ -588,7 +588,10 @@ function CommentCard({
           {initialsOf(comment.authorName)}
         </span>
         <span className="text-sm font-medium">{comment.authorName}</span>
-        <span className="ml-auto text-[11px] text-ink-faint">
+        <span
+          suppressHydrationWarning
+          className="ml-auto text-[11px] text-ink-faint"
+        >
           {formatWhen(comment.createdAt)}
         </span>
       </div>
@@ -649,7 +652,7 @@ function CommentCard({
           {comment.replies.map((r) => (
             <li key={r.id} className="group text-sm">
               <span className="font-medium">{r.authorName}</span>{" "}
-              <span className="text-[11px] text-ink-faint">
+              <span suppressHydrationWarning className="text-[11px] text-ink-faint">
                 {formatWhen(r.createdAt)}
               </span>
               <button

@@ -363,7 +363,7 @@ function PostItem({
               {initialsOf(post.authorName)}
             </span>
             <span className="text-sm font-medium">{post.authorName}</span>
-            <span className="text-[11px] text-ink-faint">
+            <span suppressHydrationWarning className="text-[11px] text-ink-faint">
               {formatWhen(post.createdAt)}
             </span>
           </div>
