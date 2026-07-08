@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { isCloudStorage } from "@/lib/storage";
+import { isCloudStorage, publicUrl } from "@/lib/storage";
 import { Header } from "@/components/Header";
 import { EpisodeView, type SceneData } from "./EpisodeView";
 
@@ -40,6 +40,7 @@ export default async function EpisodePage({
 
   if (!episode) notFound();
 
+  const cloud = isCloudStorage();
   const scenes: SceneData[] = episode.scenes.map((s) => {
     const comments = s.comments.map((c) => ({
       id: c.id,
@@ -61,7 +62,11 @@ export default async function EpisodePage({
       id: s.id,
       title: s.title,
       hasVideo: Boolean(s.videoFile),
-      videoSrc: s.videoFile ? `/api/video/${s.id}` : null,
+      videoSrc: s.videoFile
+        ? cloud
+          ? publicUrl(s.videoFile)
+          : `/api/video/${s.id}`
+        : null,
       openCount: comments.filter((c) => !c.resolved).length,
       comments,
     };
@@ -87,11 +92,7 @@ export default async function EpisodePage({
         </div>
       </div>
 
-      <EpisodeView
-        episodeId={episode.id}
-        cloud={isCloudStorage()}
-        scenes={scenes}
-      />
+      <EpisodeView episodeId={episode.id} cloud={cloud} scenes={scenes} />
     </div>
   );
 }
