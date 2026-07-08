@@ -54,8 +54,21 @@ export function EpisodeView({
     );
   }
 
-  // Re-sync when the server sends a new order (e.g. after add/reorder/refresh).
-  const sig = scenes.map((s) => s.id).join(",");
+  // Re-sync when the server sends new data (reorder, add/delete/resolve notes,
+  // edits changed, etc.) — the signature captures comment + edit changes too.
+  const sig = JSON.stringify(
+    scenes.map((s) => [
+      s.id,
+      s.comments.map((c) => [
+        c.id,
+        c.resolved,
+        c.replies.length,
+        c.hasFrame,
+        c.generatedPrompt ? 1 : 0,
+      ]),
+      s.edits.map((e) => [e.id, e.data.length]),
+    ])
+  );
   useEffect(() => {
     setItems(scenes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
