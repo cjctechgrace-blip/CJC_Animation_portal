@@ -19,6 +19,9 @@ npm-debug.log*
 .env
 .env*.local
 
+# ffmpeg.wasm core (copied into /public at build)
+/public/ffmpeg
+
 # database (local sqlite)
 /prisma/*.db
 /prisma/*.db-journal

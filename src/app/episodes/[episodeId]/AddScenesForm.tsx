@@ -29,9 +29,15 @@ export function AddScenesForm({
     setError(null);
     setBusy(true);
     try {
-      const scenes = await uploadScenesToStorage(files, (i, total, p) => {
-        setStatus(`Uploading clip ${i + 1} of ${total}…`);
-        setPct(p);
+      const scenes = await uploadScenesToStorage(files, (s) => {
+        setStatus(
+          s.phase === "compress"
+            ? `Compressing clip ${s.index + 1} of ${s.total}${
+                s.note ? ` — ${s.note}` : "…"
+              }`
+            : `Uploading clip ${s.index + 1} of ${s.total}…`
+        );
+        setPct(s.pct);
       });
       setStatus("Saving…");
       const res = await addScenesAction({ episodeId, scenes });
@@ -96,7 +102,7 @@ export function AddScenesForm({
       {busy && status ? (
         <div className="mt-2">
           <p className="text-xs text-ink-soft">{status}</p>
-          {status.startsWith("Uploading") ? (
+          {/^(Uploading|Compressing)/.test(status) ? (
             <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-line">
               <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
             </div>

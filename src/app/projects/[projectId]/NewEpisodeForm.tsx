@@ -33,9 +33,15 @@ export function NewEpisodeForm({
     try {
       let scenes: { title: string; videoKey: string; mimeType: string }[] = [];
       if (files.length) {
-        scenes = await uploadScenesToStorage(files, (i, total, p) => {
-          setStatus(`Uploading clip ${i + 1} of ${total}…`);
-          setPct(p);
+        scenes = await uploadScenesToStorage(files, (s) => {
+          setStatus(
+            s.phase === "compress"
+              ? `Compressing clip ${s.index + 1} of ${s.total}${
+                  s.note ? ` — ${s.note}` : "…"
+                }`
+              : `Uploading clip ${s.index + 1} of ${s.total}…`
+          );
+          setPct(s.pct);
         });
       }
       setStatus("Creating episode…");
@@ -133,6 +139,7 @@ export function NewEpisodeForm({
         />
         <p className="mt-1 text-xs text-ink-faint">
           Select every clip in your scene folder (open the folder, then Ctrl+A).
+          Clips over 50 MB are automatically compressed to fit.
           {files.length > 0 ? ` ${files.length} clip(s) selected.` : ""}
         </p>
       </div>
@@ -140,7 +147,7 @@ export function NewEpisodeForm({
       {busy && status ? (
         <div className="mb-3" data-testid="upload-status">
           <p className="text-sm text-ink-soft">{status}</p>
-          {status.startsWith("Uploading") ? (
+          {/^(Uploading|Compressing)/.test(status) ? (
             <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-line">
               <div
                 className="h-full bg-accent transition-all"
