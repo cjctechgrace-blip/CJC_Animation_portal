@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { isCloudStorage } from "@/lib/storage";
 import { Header } from "@/components/Header";
-import { EpisodeReview } from "./EpisodeReview";
+import { EpisodeView, type SceneData } from "./EpisodeView";
 
 export const dynamic = "force-dynamic";
 
@@ -18,14 +19,19 @@ export default async function EpisodePage({
     where: { id: params.episodeId },
     include: {
       project: { select: { id: true, name: true } },
-      comments: {
-        where: { parentId: null },
-        orderBy: [{ timecodeMs: "asc" }, { createdAt: "asc" }],
+      scenes: {
+        orderBy: { order: "asc" },
         include: {
-          author: { select: { id: true, name: true } },
-          replies: {
-            orderBy: { createdAt: "asc" },
-            include: { author: { select: { id: true, name: true } } },
+          comments: {
+            where: { parentId: null },
+            orderBy: [{ timecodeMs: "asc" }, { createdAt: "asc" }],
+            include: {
+              author: { select: { name: true } },
+              replies: {
+                orderBy: { createdAt: "asc" },
+                include: { author: { select: { name: true } } },
+              },
+            },
           },
         },
       },
@@ -34,22 +40,32 @@ export default async function EpisodePage({
 
   if (!episode) notFound();
 
-  const comments = episode.comments.map((c) => ({
-    id: c.id,
-    body: c.body,
-    timecodeMs: c.timecodeMs,
-    resolved: c.resolved,
-    authorName: c.author.name,
-    createdAt: c.createdAt.toISOString(),
-    hasFrame: Boolean(c.frameImage),
-    generatedPrompt: c.generatedPrompt,
-    replies: c.replies.map((r) => ({
-      id: r.id,
-      body: r.body,
-      authorName: r.author.name,
-      createdAt: r.createdAt.toISOString(),
-    })),
-  }));
+  const scenes: SceneData[] = episode.scenes.map((s) => {
+    const comments = s.comments.map((c) => ({
+      id: c.id,
+      body: c.body,
+      timecodeMs: c.timecodeMs,
+      resolved: c.resolved,
+      authorName: c.author.name,
+      createdAt: c.createdAt.toISOString(),
+      hasFrame: Boolean(c.frameImage),
+      generatedPrompt: c.generatedPrompt,
+      replies: c.replies.map((r) => ({
+        id: r.id,
+        body: r.body,
+        authorName: r.author.name,
+        createdAt: r.createdAt.toISOString(),
+      })),
+    }));
+    return {
+      id: s.id,
+      title: s.title,
+      hasVideo: Boolean(s.videoFile),
+      videoSrc: s.videoFile ? `/api/video/${s.id}` : null,
+      openCount: comments.filter((c) => !c.resolved).length,
+      comments,
+    };
+  });
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -71,11 +87,10 @@ export default async function EpisodePage({
         </div>
       </div>
 
-      <EpisodeReview
+      <EpisodeView
         episodeId={episode.id}
-        hasVideo={Boolean(episode.videoFile)}
-        videoSrc={episode.videoFile ? `/api/video/${episode.id}` : null}
-        initialComments={comments}
+        cloud={isCloudStorage()}
+        scenes={scenes}
       />
     </div>
   );

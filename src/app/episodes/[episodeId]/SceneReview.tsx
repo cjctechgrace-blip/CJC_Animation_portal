@@ -18,7 +18,7 @@ type Reply = {
   createdAt: string;
 };
 
-type Comment = {
+export type SceneComment = {
   id: string;
   body: string;
   timecodeMs: number | null;
@@ -30,16 +30,16 @@ type Comment = {
   replies: Reply[];
 };
 
-export function EpisodeReview({
-  episodeId,
+export function SceneReview({
+  sceneId,
   hasVideo,
   videoSrc,
   initialComments,
 }: {
-  episodeId: string;
+  sceneId: string;
   hasVideo: boolean;
   videoSrc: string | null;
-  initialComments: Comment[];
+  initialComments: SceneComment[];
 }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -47,7 +47,6 @@ export function EpisodeReview({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  // draw-on-frame state
   const [captureBase, setCaptureBase] = useState<string | null>(null);
   const [frameDataUrl, setFrameDataUrl] = useState<string | null>(null);
 
@@ -64,7 +63,7 @@ export function EpisodeReview({
   function captureFrame() {
     const video = videoRef.current;
     if (!video || video.readyState < 2) {
-      setError("Let the video load a moment, then capture again.");
+      setError("Let the clip load a moment, then capture again.");
       return;
     }
     const canvas = document.createElement("canvas");
@@ -91,7 +90,7 @@ export function EpisodeReview({
     const frame = frameDataUrl;
     startTransition(async () => {
       const res = await addCommentAction({
-        episodeId,
+        sceneId,
         body,
         timecodeMs: ms,
         frameDataUrl: frame,
@@ -108,8 +107,7 @@ export function EpisodeReview({
   }
 
   return (
-    <main className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 gap-6 px-6 py-6 lg:grid-cols-[1fr_400px]">
-      {/* ---------------- player + composer ---------------- */}
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
       <section className="flex flex-col gap-4">
         <div className="overflow-hidden rounded-xl border border-line bg-black">
           {hasVideo && videoSrc ? (
@@ -117,7 +115,7 @@ export function EpisodeReview({
               ref={videoRef}
               src={videoSrc}
               controls
-              data-testid="episode-video"
+              data-testid="scene-video"
               className="aspect-video w-full bg-black"
               onTimeUpdate={(e) =>
                 setCurrentMs(Math.round(e.currentTarget.currentTime * 1000))
@@ -125,7 +123,7 @@ export function EpisodeReview({
             />
           ) : (
             <div className="grid aspect-video w-full place-items-center bg-ink text-center text-sm text-white/70">
-              No video uploaded for this episode yet.
+              No clip uploaded for this scene yet.
             </div>
           )}
         </div>
@@ -152,7 +150,7 @@ export function EpisodeReview({
             placeholder={
               hasVideo
                 ? "Pause at the moment, then describe what to change…"
-                : "Add a general note for this episode…"
+                : "Add a general note for this scene…"
             }
           />
 
@@ -211,7 +209,7 @@ export function EpisodeReview({
             <p className="text-xs text-ink-faint">
               {hasVideo
                 ? "Your note pins to the frame showing now."
-                : "Upload a video to pin notes to exact moments."}
+                : "Upload a clip to pin notes to exact moments."}
             </p>
             <button
               type="button"
@@ -230,7 +228,6 @@ export function EpisodeReview({
         </div>
       </section>
 
-      {/* ---------------- feedback sidebar ---------------- */}
       <aside className="flex flex-col">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-semibold tracking-tight">Feedback</h2>
@@ -246,7 +243,7 @@ export function EpisodeReview({
 
         {initialComments.length === 0 ? (
           <div className="card grid place-items-center px-4 py-12 text-center text-sm text-ink-soft">
-            No feedback yet. Be the first to leave a note.
+            No feedback on this scene yet. Be the first to leave a note.
           </div>
         ) : (
           <ul className="flex flex-col gap-3" data-testid="comment-list">
@@ -261,7 +258,7 @@ export function EpisodeReview({
           </ul>
         )}
       </aside>
-    </main>
+    </div>
   );
 }
 
@@ -270,7 +267,7 @@ function CommentCard({
   onSeek,
   onChanged,
 }: {
-  comment: Comment;
+  comment: SceneComment;
   onSeek: () => void;
   onChanged: () => void;
 }) {
@@ -286,11 +283,8 @@ function CommentCard({
     setPromptError(null);
     startGen(async () => {
       const res = await generatePromptAction({ commentId: comment.id });
-      if (res.ok && res.prompt) {
-        setPrompt(res.prompt);
-      } else {
-        setPromptError(res.error ?? "Could not generate a prompt.");
-      }
+      if (res.ok && res.prompt) setPrompt(res.prompt);
+      else setPromptError(res.error ?? "Could not generate a prompt.");
     });
   }
 

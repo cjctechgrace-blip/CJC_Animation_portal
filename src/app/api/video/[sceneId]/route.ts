@@ -11,35 +11,34 @@ const MIME_FALLBACK = "video/mp4";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { episodeId: string } }
+  { params }: { params: { sceneId: string } }
 ) {
   const user = await getCurrentUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
-  const episode = await db.episode.findUnique({
-    where: { id: params.episodeId },
+  const scene = await db.scene.findUnique({
+    where: { id: params.sceneId },
     select: { videoFile: true, mimeType: true },
   });
-  if (!episode?.videoFile) {
+  if (!scene?.videoFile) {
     return new Response("No video", { status: 404 });
   }
 
   // Cloud: hand off to Supabase Storage's public URL (it supports Range/seeking).
   if (isCloudStorage()) {
-    return Response.redirect(publicUrl(episode.videoFile), 307);
+    return Response.redirect(publicUrl(scene.videoFile), 307);
   }
 
-  const filePath = storagePathFor(episode.videoFile);
+  const filePath = storagePathFor(scene.videoFile);
   if (!fs.existsSync(filePath)) {
     return new Response("File missing", { status: 404 });
   }
 
   const stat = fs.statSync(filePath);
   const size = stat.size;
-  const contentType = episode.mimeType || MIME_FALLBACK;
+  const contentType = scene.mimeType || MIME_FALLBACK;
   const range = req.headers.get("range");
 
-  // Range request → 206 partial content (enables scrubbing/seeking).
   if (range) {
     const match = /bytes=(\d*)-(\d*)/.exec(range);
     let start = match && match[1] ? parseInt(match[1], 10) : 0;
@@ -70,7 +69,6 @@ export async function GET(
     });
   }
 
-  // No range → full file, but advertise range support so the player can seek.
   const nodeStream = fs.createReadStream(filePath);
   const webStream = Readable.toWeb(nodeStream) as ReadableStream;
   return new Response(webStream, {

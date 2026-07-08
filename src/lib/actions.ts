@@ -105,13 +105,14 @@ export async function createSignedUploadAction(input: {
   }
 }
 
-/** Create the episode row (after the browser has uploaded the video, if any). */
-export async function createEpisodeAction(input: {
+type SceneInput = { title: string; videoKey?: string | null; mimeType?: string | null };
+
+/** Create an episode plus its ordered scene clips (uploaded by the browser). */
+export async function createEpisodeWithScenesAction(input: {
   projectId: string;
   title: string;
   description?: string;
-  videoKey?: string | null;
-  mimeType?: string | null;
+  scenes: SceneInput[];
 }): Promise<{ ok: boolean; episodeId?: string; error?: string }> {
   const user = await requireUser();
   const title = input.title.trim();
@@ -128,20 +129,61 @@ export async function createEpisodeAction(input: {
       projectId: input.projectId,
       title,
       description: (input.description ?? "").trim(),
-      videoFile: input.videoKey ?? null,
-      mimeType: input.mimeType ?? null,
       createdById: user.id,
     },
   });
+
+  if (input.scenes?.length) {
+    await db.scene.createMany({
+      data: input.scenes.map((s, i) => ({
+        episodeId: episode.id,
+        title: s.title?.trim() || `Scene ${i + 1}`,
+        order: i,
+        videoFile: s.videoKey ?? null,
+        mimeType: s.mimeType ?? null,
+        createdById: user.id,
+      })),
+    });
+  }
 
   revalidatePath(`/projects/${input.projectId}`);
   return { ok: true, episodeId: episode.id };
 }
 
+/** Append more scene clips to an existing episode. */
+export async function addScenesAction(input: {
+  episodeId: string;
+  scenes: SceneInput[];
+}): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const episode = await db.episode.findUnique({
+    where: { id: input.episodeId },
+    select: { id: true, _count: { select: { scenes: true } } },
+  });
+  if (!episode) return { ok: false, error: "Episode not found." };
+  const base = episode._count.scenes;
+
+  if (input.scenes?.length) {
+    await db.scene.createMany({
+      data: input.scenes.map((s, i) => ({
+        episodeId: input.episodeId,
+        title: s.title?.trim() || `Scene ${base + i + 1}`,
+        order: base + i,
+        videoFile: s.videoKey ?? null,
+        mimeType: s.mimeType ?? null,
+        createdById: user.id,
+      })),
+    });
+  }
+
+  revalidatePath(`/episodes/${input.episodeId}`);
+  return { ok: true };
+}
+
 /* --------------------------- comments --------------------------- */
 
 export async function addCommentAction(input: {
-  episodeId: string;
+  sceneId: string;
   body: string;
   timecodeMs: number;
   frameDataUrl?: string | null;
@@ -150,15 +192,15 @@ export async function addCommentAction(input: {
   const body = input.body.trim();
   if (!body) return { ok: false, error: "Write something first." };
 
-  const episode = await db.episode.findUnique({
-    where: { id: input.episodeId },
-    select: { id: true },
+  const scene = await db.scene.findUnique({
+    where: { id: input.sceneId },
+    select: { id: true, episodeId: true },
   });
-  if (!episode) return { ok: false, error: "Episode not found." };
+  if (!scene) return { ok: false, error: "Scene not found." };
 
   const created = await db.comment.create({
     data: {
-      episodeId: input.episodeId,
+      sceneId: input.sceneId,
       authorId: user.id,
       body,
       timecodeMs: Math.max(0, Math.round(input.timecodeMs)),
@@ -176,7 +218,7 @@ export async function addCommentAction(input: {
     }
   }
 
-  revalidatePath(`/episodes/${input.episodeId}`);
+  revalidatePath(`/episodes/${scene.episodeId}`);
   return { ok: true };
 }
 
@@ -190,13 +232,13 @@ export async function addReplyAction(input: {
 
   const parent = await db.comment.findUnique({
     where: { id: input.parentId },
-    select: { id: true, episodeId: true },
+    select: { id: true, sceneId: true, scene: { select: { episodeId: true } } },
   });
   if (!parent) return { ok: false, error: "Comment not found." };
 
   await db.comment.create({
     data: {
-      episodeId: parent.episodeId,
+      sceneId: parent.sceneId,
       authorId: user.id,
       body,
       parentId: parent.id,
@@ -204,7 +246,7 @@ export async function addReplyAction(input: {
     },
   });
 
-  revalidatePath(`/episodes/${parent.episodeId}`);
+  revalidatePath(`/episodes/${parent.scene.episodeId}`);
   return { ok: true };
 }
 
@@ -214,7 +256,11 @@ export async function toggleResolvedAction(input: {
   await requireUser();
   const comment = await db.comment.findUnique({
     where: { id: input.commentId },
-    select: { id: true, resolved: true, episodeId: true },
+    select: {
+      id: true,
+      resolved: true,
+      scene: { select: { episodeId: true } },
+    },
   });
   if (!comment) return { ok: false, error: "Comment not found." };
 
@@ -223,7 +269,7 @@ export async function toggleResolvedAction(input: {
     data: { resolved: !comment.resolved },
   });
 
-  revalidatePath(`/episodes/${comment.episodeId}`);
+  revalidatePath(`/episodes/${comment.scene.episodeId}`);
   return { ok: true, resolved: updated.resolved };
 }
 
@@ -237,7 +283,13 @@ export async function generatePromptAction(input: {
   const comment = await db.comment.findUnique({
     where: { id: input.commentId },
     include: {
-      episode: { select: { title: true, description: true } },
+      scene: {
+        select: {
+          episodeId: true,
+          title: true,
+          episode: { select: { title: true, description: true } },
+        },
+      },
     },
   });
   if (!comment) return { ok: false, error: "Note not found." };
@@ -245,8 +297,8 @@ export async function generatePromptAction(input: {
   try {
     const { prompt, usedAI } = await generateHiggsfieldPrompt({
       note: comment.body,
-      episodeTitle: comment.episode.title,
-      episodeDescription: comment.episode.description,
+      episodeTitle: `${comment.scene.episode.title} — ${comment.scene.title}`,
+      episodeDescription: comment.scene.episode.description,
       timecodeMs: comment.timecodeMs,
       frameImage: comment.frameImage,
     });
@@ -256,7 +308,7 @@ export async function generatePromptAction(input: {
       data: { generatedPrompt: prompt },
     });
 
-    revalidatePath(`/episodes/${comment.episodeId}`);
+    revalidatePath(`/episodes/${comment.scene.episodeId}`);
     return { ok: true, prompt, usedAI };
   } catch (e) {
     return {

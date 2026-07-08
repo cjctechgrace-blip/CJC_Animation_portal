@@ -2,35 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createSignedUploadAction, createEpisodeAction } from "@/lib/actions";
-
-function putWithProgress(
-  url: string,
-  file: File,
-  contentType: string,
-  onPct: (n: number) => void
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("content-type", contentType);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onPct(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else if (xhr.status === 413)
-        reject(
-          new Error(
-            "This file is over the 50 MB limit on the current Supabase plan. Compress the clip, or upgrade Supabase storage for full episodes."
-          )
-        );
-      else reject(new Error(`Upload failed (${xhr.status}).`));
-    };
-    xhr.onerror = () => reject(new Error("Upload failed — check your connection."));
-    xhr.send(file);
-  });
-}
+import { createEpisodeWithScenesAction } from "@/lib/actions";
+import { uploadScenesToStorage } from "@/lib/uploadScenes";
 
 export function NewEpisodeForm({
   projectId,
@@ -43,7 +16,7 @@ export function NewEpisodeForm({
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [pct, setPct] = useState(0);
@@ -58,31 +31,19 @@ export function NewEpisodeForm({
     setError(null);
     setBusy(true);
     try {
-      let videoKey: string | null = null;
-      let mimeType: string | null = null;
-
-      if (file) {
-        mimeType = file.type || "video/mp4";
-        setStatus("Preparing upload…");
-        const up = await createSignedUploadAction({
-          filename: file.name,
-          contentType: mimeType,
+      let scenes: { title: string; videoKey: string; mimeType: string }[] = [];
+      if (files.length) {
+        scenes = await uploadScenesToStorage(files, (i, total, p) => {
+          setStatus(`Uploading clip ${i + 1} of ${total}…`);
+          setPct(p);
         });
-        if (!up.ok || !up.uploadUrl || !up.key) {
-          throw new Error(up.error || "Could not start upload.");
-        }
-        setStatus("Uploading video…");
-        await putWithProgress(up.uploadUrl, file, mimeType, setPct);
-        videoKey = up.key;
       }
-
-      setStatus("Saving episode…");
-      const ep = await createEpisodeAction({
+      setStatus("Creating episode…");
+      const ep = await createEpisodeWithScenesAction({
         projectId,
         title,
         description,
-        videoKey,
-        mimeType,
+        scenes,
       });
       if (!ep.ok || !ep.episodeId) throw new Error(ep.error || "Could not save.");
       router.push(`/episodes/${ep.episodeId}`);
@@ -107,7 +68,6 @@ export function NewEpisodeForm({
     );
   }
 
-  // Local dev (no cloud storage): fall back to a native form post to the route.
   const formProps = cloud
     ? { onSubmit: handleSubmit }
     : {
@@ -119,7 +79,10 @@ export function NewEpisodeForm({
 
   return (
     <form {...formProps} className="card w-full max-w-lg p-5">
-      <h2 className="mb-3 font-semibold">Add episode</h2>
+      <h2 className="mb-1 font-semibold">Add episode</h2>
+      <p className="mb-3 text-xs text-ink-faint">
+        An episode is a set of short scene clips. Add them all at once.
+      </p>
       <div className="mb-3">
         <label className="label" htmlFor="title">
           Episode title
@@ -151,19 +114,26 @@ export function NewEpisodeForm({
       </div>
       <div className="mb-4">
         <label className="label" htmlFor="video">
-          Video file
+          Scene clips
         </label>
         <input
           id="video"
           name="video"
           type="file"
           accept="video/*"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          multiple
+          onChange={(e) =>
+            setFiles(
+              Array.from(e.target.files ?? []).filter((f) =>
+                f.type.startsWith("video/")
+              )
+            )
+          }
           className="field file:mr-3 file:rounded file:border-0 file:bg-reel-soft file:px-3 file:py-1 file:text-reel"
         />
         <p className="mt-1 text-xs text-ink-faint">
-          Uploads straight to storage — large clips are fine. You can also add
-          the episode now and upload later.
+          Select every clip in your scene folder (open the folder, then Ctrl+A).
+          {files.length > 0 ? ` ${files.length} clip(s) selected.` : ""}
         </p>
       </div>
 

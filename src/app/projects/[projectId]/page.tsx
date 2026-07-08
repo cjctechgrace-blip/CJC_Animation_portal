@@ -21,7 +21,7 @@ export default async function ProjectPage({
     include: {
       episodes: {
         orderBy: { createdAt: "desc" },
-        include: { _count: { select: { comments: true } } },
+        include: { _count: { select: { scenes: true } } },
       },
     },
   });
@@ -71,19 +71,19 @@ export default async function ProjectPage({
                   <div className="flex items-center gap-3">
                     <span
                       aria-hidden
-                      className={`grid h-10 w-14 place-items-center rounded-md text-xs font-semibold ${
-                        ep.videoFile
+                      className={`grid h-10 w-14 place-items-center rounded-md text-sm font-semibold ${
+                        ep._count.scenes > 0
                           ? "bg-ink text-white"
                           : "border border-dashed border-line text-ink-faint"
                       }`}
                     >
-                      {ep.videoFile ? "▶" : "no clip"}
+                      {ep._count.scenes > 0 ? ep._count.scenes : "–"}
                     </span>
                     <div>
                       <h3 className="font-medium">{ep.title}</h3>
                       <p className="text-xs text-ink-faint">
-                        {ep._count.comments}{" "}
-                        {ep._count.comments === 1 ? "note" : "notes"} ·{" "}
+                        {ep._count.scenes}{" "}
+                        {ep._count.scenes === 1 ? "scene" : "scenes"} ·{" "}
                         {formatWhen(ep.createdAt)}
                       </p>
                     </div>

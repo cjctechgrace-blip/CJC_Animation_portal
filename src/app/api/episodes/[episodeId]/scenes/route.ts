@@ -6,39 +6,26 @@ import { putMedia, extensionFor } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
-// Local-dev fallback: native multipart form post. In the hosted app the browser
-// uploads scene clips directly to Supabase and calls createEpisodeWithScenesAction.
+// Local-dev fallback for appending scene clips to an existing episode.
 export async function POST(
   req: NextRequest,
-  { params }: { params: { projectId: string } }
+  { params }: { params: { episodeId: string } }
 ) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.redirect(new URL("/login", req.url));
 
-  const project = await db.project.findUnique({
-    where: { id: params.projectId },
-    select: { id: true },
+  const episode = await db.episode.findUnique({
+    where: { id: params.episodeId },
+    select: { id: true, _count: { select: { scenes: true } } },
   });
-  if (!project) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  if (!episode) {
+    return NextResponse.json({ error: "Episode not found" }, { status: 404 });
   }
 
   const form = await req.formData();
-  const title = String(form.get("title") ?? "").trim();
-  const description = String(form.get("description") ?? "").trim();
   const files = form.getAll("video").filter((f): f is File => f instanceof File && f.size > 0);
 
-  if (!title) {
-    return NextResponse.redirect(
-      new URL(`/projects/${params.projectId}?error=title`, req.url)
-    );
-  }
-
-  const episode = await db.episode.create({
-    data: { projectId: params.projectId, title, description, createdById: user.id },
-  });
-
-  let order = 0;
+  let order = episode._count.scenes;
   for (const file of files) {
     const mimeType = file.type || "video/mp4";
     const ext = extensionFor(mimeType, file.name);
