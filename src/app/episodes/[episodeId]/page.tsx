@@ -8,6 +8,17 @@ import { EpisodeView, type SceneData } from "./EpisodeView";
 
 export const dynamic = "force-dynamic";
 
+function parseMark(raw: string | null) {
+  if (!raw) return null;
+  try {
+    const m = JSON.parse(raw);
+    if (m && typeof m.x === "number" && typeof m.y === "number") return m;
+  } catch {
+    // ignore malformed mark
+  }
+  return null;
+}
+
 export default async function EpisodePage({
   params,
 }: {
@@ -51,6 +62,7 @@ export default async function EpisodePage({
       createdAt: c.createdAt.toISOString(),
       hasFrame: Boolean(c.frameImage),
       generatedPrompt: c.generatedPrompt,
+      mark: parseMark(c.mark),
       replies: c.replies.map((r) => ({
         id: r.id,
         body: r.body,

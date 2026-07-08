@@ -9,13 +9,20 @@ import {
   generatePromptAction,
 } from "@/lib/actions";
 import { formatTimecode, formatWhen, initialsOf } from "@/lib/format";
-import { FrameCanvas } from "./FrameCanvas";
 
 type Reply = {
   id: string;
   body: string;
   authorName: string;
   createdAt: string;
+};
+
+export type Mark = {
+  type: "rect" | "point";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 };
 
 export type SceneComment = {
@@ -27,8 +34,44 @@ export type SceneComment = {
   createdAt: string;
   hasFrame: boolean;
   generatedPrompt: string | null;
+  mark: Mark | null;
   replies: Reply[];
 };
+
+/** The highlight shape drawn over the video. */
+function MarkShape({ mark, kind }: { mark: Mark; kind: "draft" | "active" }) {
+  const ring =
+    kind === "active"
+      ? "border-accent bg-accent/20 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"
+      : "border-reel bg-reel/20";
+  if (mark.type === "point") {
+    return (
+      <div
+        className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
+        style={{ left: `${mark.x * 100}%`, top: `${mark.y * 100}%` }}
+        data-testid="mark-shape"
+      >
+        <span
+          className={`block h-6 w-6 rounded-full border-2 ${ring} ${
+            kind === "active" ? "animate-pulse" : ""
+          }`}
+        />
+      </div>
+    );
+  }
+  return (
+    <div
+      className={`pointer-events-none absolute rounded-sm border-2 ${ring}`}
+      style={{
+        left: `${mark.x * 100}%`,
+        top: `${mark.y * 100}%`,
+        width: `${mark.w * 100}%`,
+        height: `${mark.h * 100}%`,
+      }}
+      data-testid="mark-shape"
+    />
+  );
+}
 
 export function SceneReview({
   sceneId,
@@ -43,38 +86,119 @@ export function SceneReview({
 }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const [currentMs, setCurrentMs] = useState(0);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [captureBase, setCaptureBase] = useState<string | null>(null);
-  const [frameDataUrl, setFrameDataUrl] = useState<string | null>(null);
+
+  // marking state
+  const [marking, setMarking] = useState(false);
+  const [pendingMark, setPendingMark] = useState<Mark | null>(null);
+  const [draftMark, setDraftMark] = useState<Mark | null>(null);
+  const startRef = useRef<{ x: number; y: number } | null>(null);
+  // which comment's mark is currently revealed on the video
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   const openCount = initialComments.filter((c) => !c.resolved).length;
   const resolvedCount = initialComments.length - openCount;
+  const activeComment = initialComments.find((c) => c.id === activeId) ?? null;
 
-  function seekTo(ms: number | null) {
-    if (ms == null || !videoRef.current) return;
-    videoRef.current.currentTime = ms / 1000;
-    setCurrentMs(ms);
-    videoRef.current.pause();
+  const shownMark = draftMark ?? pendingMark ?? (marking ? null : activeComment?.mark ?? null);
+  const shownKind: "draft" | "active" = draftMark || pendingMark ? "draft" : "active";
+
+  function norm(e: React.PointerEvent) {
+    const rect = overlayRef.current!.getBoundingClientRect();
+    return {
+      x: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
+      y: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
+    };
   }
 
-  function captureFrame() {
-    const video = videoRef.current;
-    if (!video || video.readyState < 2) {
-      setError("Let the clip load a moment, then capture again.");
-      return;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    video.pause();
+  function startMarking() {
+    videoRef.current?.pause();
+    setActiveId(null);
+    setPendingMark(null);
+    setDraftMark(null);
     setError(null);
-    setCaptureBase(canvas.toDataURL("image/png"));
+    setMarking(true);
+  }
+
+  function onDown(e: React.PointerEvent) {
+    if (!marking) return;
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+    const p = norm(e);
+    startRef.current = p;
+    setDraftMark({ type: "point", x: p.x, y: p.y, w: 0, h: 0 });
+  }
+  function onMove(e: React.PointerEvent) {
+    if (!marking || !startRef.current) return;
+    const s = startRef.current;
+    const p = norm(e);
+    setDraftMark({
+      type: "rect",
+      x: Math.min(s.x, p.x),
+      y: Math.min(s.y, p.y),
+      w: Math.abs(p.x - s.x),
+      h: Math.abs(p.y - s.y),
+    });
+  }
+  function onUp() {
+    if (!marking || !startRef.current) return;
+    const d = draftMark;
+    startRef.current = null;
+    setDraftMark(null);
+    if (!d) return;
+    // tiny drag → treat as a spot
+    const final: Mark =
+      d.type === "rect" && (d.w < 0.02 || d.h < 0.02)
+        ? { type: "point", x: d.x, y: d.y, w: 0, h: 0 }
+        : d;
+    setPendingMark(final);
+    setMarking(false);
+  }
+
+  /** Capture the current frame with the mark drawn on it (best effort). */
+  function captureFrameWithMark(mark: Mark): string | null {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || !video.videoWidth) return null;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "#d8742e";
+      ctx.lineWidth = Math.max(3, canvas.width * 0.005);
+      if (mark.type === "rect") {
+        ctx.strokeRect(
+          mark.x * canvas.width,
+          mark.y * canvas.height,
+          mark.w * canvas.width,
+          mark.h * canvas.height
+        );
+      } else {
+        ctx.beginPath();
+        ctx.arc(mark.x * canvas.width, mark.y * canvas.height, canvas.width * 0.02, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      return canvas.toDataURL("image/png");
+    } catch {
+      return null; // cross-origin taint or decode issue — mark still saves
+    }
+  }
+
+  function selectComment(c: SceneComment) {
+    setMarking(false);
+    setPendingMark(null);
+    setDraftMark(null);
+    setActiveId(c.id);
+    if (c.timecodeMs != null && videoRef.current) {
+      videoRef.current.currentTime = c.timecodeMs / 1000;
+      videoRef.current.pause();
+      setCurrentMs(c.timecodeMs);
+    }
   }
 
   function submitNote() {
@@ -83,25 +207,24 @@ export function SceneReview({
       setError("Write your note first.");
       return;
     }
-    const ms = videoRef.current
-      ? Math.round(videoRef.current.currentTime * 1000)
-      : 0;
+    const ms = videoRef.current ? Math.round(videoRef.current.currentTime * 1000) : 0;
     setError(null);
-    const frame = frameDataUrl;
+    const mark = pendingMark;
+    const frameDataUrl = mark ? captureFrameWithMark(mark) : null;
     startTransition(async () => {
       const res = await addCommentAction({
         sceneId,
         body,
         timecodeMs: ms,
-        frameDataUrl: frame,
+        frameDataUrl,
+        mark: mark ? JSON.stringify(mark) : null,
       });
       if (!res.ok) {
         setError(res.error ?? "Could not save the note.");
         return;
       }
       setDraft("");
-      setFrameDataUrl(null);
-      setCaptureBase(null);
+      setPendingMark(null);
       router.refresh();
     });
   }
@@ -109,12 +232,13 @@ export function SceneReview({
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
       <section className="flex flex-col gap-4">
-        <div className="overflow-hidden rounded-xl border border-line bg-black">
+        <div className="relative overflow-hidden rounded-xl border border-line bg-black">
           {hasVideo && videoSrc ? (
             <video
               ref={videoRef}
               src={videoSrc}
-              controls
+              controls={!marking}
+              crossOrigin="anonymous"
               data-testid="scene-video"
               className="aspect-video w-full bg-black"
               onTimeUpdate={(e) =>
@@ -126,6 +250,27 @@ export function SceneReview({
               No clip uploaded for this scene yet.
             </div>
           )}
+
+          {/* marking + display overlay */}
+          {hasVideo ? (
+            <div
+              ref={overlayRef}
+              data-testid="video-overlay"
+              onPointerDown={onDown}
+              onPointerMove={onMove}
+              onPointerUp={onUp}
+              className={`absolute inset-0 ${
+                marking ? "cursor-crosshair" : "pointer-events-none"
+              }`}
+            >
+              {shownMark ? <MarkShape mark={shownMark} kind={shownKind} /> : null}
+              {marking ? (
+                <div className="pointer-events-none absolute inset-x-0 top-0 bg-black/60 px-3 py-1.5 text-center text-xs font-medium text-white">
+                  Drag a region, or click a spot — then write your note.
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="card p-4">
@@ -154,49 +299,50 @@ export function SceneReview({
             }
           />
 
-          {hasVideo && !captureBase && !frameDataUrl ? (
-            <button
-              type="button"
-              onClick={captureFrame}
-              data-testid="capture-frame"
-              className="mt-2 text-sm font-medium text-reel hover:underline"
-            >
-              ✎ Draw on this frame
-            </button>
-          ) : null}
-
-          {captureBase && !frameDataUrl ? (
-            <FrameCanvas
-              baseDataUrl={captureBase}
-              onCommit={(url) => {
-                setFrameDataUrl(url);
-                setCaptureBase(null);
-              }}
-              onCancel={() => setCaptureBase(null)}
-            />
-          ) : null}
-
-          {frameDataUrl ? (
-            <div
-              className="mt-2 flex items-center gap-3 rounded-lg border border-line bg-paper p-2"
-              data-testid="frame-attached"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={frameDataUrl}
-                alt="Annotated frame to attach"
-                className="h-12 w-20 rounded object-cover"
-              />
-              <span className="text-xs text-ink-soft">
-                Frame attached — becomes the AI start-frame.
-              </span>
-              <button
-                type="button"
-                onClick={() => setFrameDataUrl(null)}
-                className="ml-auto text-xs font-medium text-ink-faint hover:text-ink"
-              >
-                Remove
-              </button>
+          {hasVideo ? (
+            <div className="mt-2 flex items-center gap-3 text-sm">
+              {marking ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMarking(false);
+                    setDraftMark(null);
+                    startRef.current = null;
+                  }}
+                  className="font-medium text-ink-faint hover:text-ink"
+                >
+                  Cancel marking
+                </button>
+              ) : pendingMark ? (
+                <span className="flex items-center gap-2 text-reel">
+                  <span data-testid="mark-attached" className="font-medium">
+                    ◈ {pendingMark.type === "point" ? "Spot" : "Region"} marked
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPendingMark(null)}
+                    className="text-xs text-ink-faint hover:text-ink"
+                  >
+                    clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startMarking}
+                    className="text-xs text-reel hover:underline"
+                  >
+                    redo
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startMarking}
+                  data-testid="mark-toggle"
+                  className="font-medium text-reel hover:underline"
+                >
+                  ◈ Mark a spot / region
+                </button>
+              )}
             </div>
           ) : null}
 
@@ -207,7 +353,9 @@ export function SceneReview({
           ) : null}
           <div className="mt-3 flex items-center justify-between">
             <p className="text-xs text-ink-faint">
-              {hasVideo
+              {pendingMark
+                ? "Your highlight attaches to this note."
+                : hasVideo
                 ? "Your note pins to the frame showing now."
                 : "Upload a clip to pin notes to exact moments."}
             </p>
@@ -251,7 +399,8 @@ export function SceneReview({
               <CommentCard
                 key={c.id}
                 comment={c}
-                onSeek={() => seekTo(c.timecodeMs)}
+                active={c.id === activeId}
+                onSelect={() => selectComment(c)}
                 onChanged={() => router.refresh()}
               />
             ))}
@@ -264,11 +413,13 @@ export function SceneReview({
 
 function CommentCard({
   comment,
-  onSeek,
+  active,
+  onSelect,
   onChanged,
 }: {
   comment: SceneComment;
-  onSeek: () => void;
+  active: boolean;
+  onSelect: () => void;
   onChanged: () => void;
 }) {
   const [replyOpen, setReplyOpen] = useState(false);
@@ -321,7 +472,9 @@ function CommentCard({
 
   return (
     <li
-      className={`card p-3 ${comment.resolved ? "opacity-70" : ""}`}
+      className={`card p-3 ${comment.resolved ? "opacity-70" : ""} ${
+        active ? "ring-2 ring-accent" : ""
+      }`}
       data-testid="comment-item"
       data-resolved={comment.resolved ? "true" : "false"}
     >
@@ -329,11 +482,12 @@ function CommentCard({
         {comment.timecodeMs != null ? (
           <button
             type="button"
-            onClick={onSeek}
+            onClick={onSelect}
             data-testid="comment-timecode"
-            className="rounded-md bg-ink px-2 py-0.5 font-mono text-xs font-semibold text-white hover:bg-reel"
-            title="Jump to this moment"
+            className="flex items-center gap-1 rounded-md bg-ink px-2 py-0.5 font-mono text-xs font-semibold text-white hover:bg-reel"
+            title={comment.mark ? "Jump to this moment & show highlight" : "Jump to this moment"}
           >
+            {comment.mark ? <span aria-hidden>◈</span> : null}
             {formatTimecode(comment.timecodeMs)}
           </button>
         ) : null}
@@ -348,11 +502,24 @@ function CommentCard({
 
       <p className="whitespace-pre-wrap text-sm text-ink">{comment.body}</p>
 
+      {comment.mark ? (
+        <button
+          type="button"
+          onClick={onSelect}
+          data-testid="show-mark"
+          className={`mt-1 text-xs font-medium ${
+            active ? "text-accent-ink" : "text-reel hover:underline"
+          }`}
+        >
+          {active ? "◈ highlight shown on video" : "◈ show highlight on video"}
+        </button>
+      ) : null}
+
       {comment.hasFrame ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={`/api/frame/${comment.id}`}
-          alt="Pinned frame with markup"
+          alt="Highlighted frame"
           data-testid="comment-frame"
           className="mt-2 w-full max-w-[220px] rounded-md border border-line"
         />

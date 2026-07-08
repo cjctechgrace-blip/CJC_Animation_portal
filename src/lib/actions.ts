@@ -187,6 +187,7 @@ export async function addCommentAction(input: {
   body: string;
   timecodeMs: number;
   frameDataUrl?: string | null;
+  mark?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const user = await requireUser();
   const body = input.body.trim();
@@ -204,6 +205,7 @@ export async function addCommentAction(input: {
       authorId: user.id,
       body,
       timecodeMs: Math.max(0, Math.round(input.timecodeMs)),
+      mark: input.mark ?? null,
     },
   });
 
