@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Header } from "@/components/Header";
 import { formatWhen } from "@/lib/format";
+import { isCloudStorage } from "@/lib/storage";
 import { NewEpisodeForm } from "./NewEpisodeForm";
 
 export const dynamic = "force-dynamic";
@@ -49,7 +50,7 @@ export default async function ProjectPage({
               </p>
             ) : null}
           </div>
-          <NewEpisodeForm projectId={project.id} />
+          <NewEpisodeForm projectId={project.id} cloud={isCloudStorage()} />
         </div>
 
         {project.episodes.length === 0 ? (

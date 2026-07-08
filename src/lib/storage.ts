@@ -79,6 +79,34 @@ export async function putMedia(
   return filename;
 }
 
+/**
+ * Create a one-time signed URL the browser can PUT a file to directly,
+ * bypassing the app server (avoids Vercel's ~4.5MB function body limit).
+ * Cloud only.
+ */
+export async function createSignedUpload(
+  prefix: string,
+  filename: string
+): Promise<{ uploadUrl: string; key: string }> {
+  const key = `${prefix}/${filename}`;
+  const res = await fetch(
+    `${SUPABASE_URL}/storage/v1/object/upload/sign/${BUCKET}/${key}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        apikey: SERVICE_KEY as string,
+      },
+    }
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Could not start upload (${res.status}): ${detail}`);
+  }
+  const data = (await res.json()) as { url: string };
+  return { uploadUrl: `${SUPABASE_URL}/storage/v1${data.url}`, key };
+}
+
 /** Save a `data:image/png;base64,...` URL and return its stored id. */
 export async function saveDataUrlPng(
   dataUrl: string,

@@ -3,8 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import { db } from "./db";
-import { saveDataUrlPng } from "./storage";
+import {
+  saveDataUrlPng,
+  createSignedUpload,
+  extensionFor,
+  isCloudStorage,
+} from "./storage";
 import { generateHiggsfieldPrompt } from "./prompt";
 import {
   createSession,
@@ -73,6 +79,63 @@ export async function createProjectAction(
 
   revalidatePath("/dashboard");
   redirect(`/projects/${project.id}`);
+}
+
+/* --------------------------- episodes --------------------------- */
+
+/** Hand the browser a one-time signed URL so it can upload the video directly
+ * to Supabase Storage (bypasses Vercel's 4.5MB serverless body limit). */
+export async function createSignedUploadAction(input: {
+  filename: string;
+  contentType: string;
+}): Promise<{ ok: boolean; uploadUrl?: string; key?: string; error?: string }> {
+  await requireUser();
+  if (!isCloudStorage()) {
+    return { ok: false, error: "Direct upload is only available in the hosted app." };
+  }
+  try {
+    const ext = extensionFor(input.contentType || "video/mp4", input.filename);
+    const { uploadUrl, key } = await createSignedUpload(
+      "videos",
+      `${randomUUID()}.${ext}`
+    );
+    return { ok: true, uploadUrl, key };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not start upload." };
+  }
+}
+
+/** Create the episode row (after the browser has uploaded the video, if any). */
+export async function createEpisodeAction(input: {
+  projectId: string;
+  title: string;
+  description?: string;
+  videoKey?: string | null;
+  mimeType?: string | null;
+}): Promise<{ ok: boolean; episodeId?: string; error?: string }> {
+  const user = await requireUser();
+  const title = input.title.trim();
+  if (!title) return { ok: false, error: "Give the episode a title." };
+
+  const project = await db.project.findUnique({
+    where: { id: input.projectId },
+    select: { id: true },
+  });
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const episode = await db.episode.create({
+    data: {
+      projectId: input.projectId,
+      title,
+      description: (input.description ?? "").trim(),
+      videoFile: input.videoKey ?? null,
+      mimeType: input.mimeType ?? null,
+      createdById: user.id,
+    },
+  });
+
+  revalidatePath(`/projects/${input.projectId}`);
+  return { ok: true, episodeId: episode.id };
 }
 
 /* --------------------------- comments --------------------------- */
