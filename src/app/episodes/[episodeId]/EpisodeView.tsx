@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { reorderScenesAction } from "@/lib/actions";
 import { SceneReview, type SceneComment } from "./SceneReview";
 import { AddScenesForm } from "./AddScenesForm";
 
@@ -22,31 +24,89 @@ export function EpisodeView({
   cloud: boolean;
   scenes: SceneData[];
 }) {
+  const router = useRouter();
+  const [items, setItems] = useState<SceneData[]>(scenes);
   const [selectedId, setSelectedId] = useState<string | null>(
     scenes[0]?.id ?? null
   );
-  const selected = scenes.find((s) => s.id === selectedId) ?? scenes[0] ?? null;
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const dragIndex = useRef<number | null>(null);
+  const [, startReorder] = useTransition();
+
+  // Re-sync when the server sends a new order (e.g. after add/reorder/refresh).
+  const sig = scenes.map((s) => s.id).join(",");
+  useEffect(() => {
+    setItems(scenes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+
+  const selected =
+    items.find((s) => s.id === selectedId) ?? items[0] ?? null;
+
+  function drop(target: number) {
+    const from = dragIndex.current;
+    dragIndex.current = null;
+    setOverIndex(null);
+    if (from == null || from === target) return;
+
+    const next = [...items];
+    const [moved] = next.splice(from, 1);
+    next.splice(target, 0, moved);
+    setItems(next); // optimistic
+
+    startReorder(async () => {
+      await reorderScenesAction({ episodeId, orderedIds: next.map((s) => s.id) });
+      router.refresh();
+    });
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-6">
-      {/* scene strip */}
+      {/* scene strip (drag to reorder) */}
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs text-ink-faint">
+          {items.length > 1 ? "Drag scenes to reorder" : "Scenes"}
+        </span>
+      </div>
       <div className="mb-3 flex items-start gap-3">
         <div className="flex flex-1 gap-2 overflow-x-auto pb-1" data-testid="scene-strip">
-          {scenes.map((s, i) => {
+          {items.map((s, i) => {
             const active = s.id === selected?.id;
+            const isOver = overIndex === i;
             return (
-              <button
+              <div
                 key={s.id}
-                type="button"
-                onClick={() => setSelectedId(s.id)}
+                draggable
+                onDragStart={(e) => {
+                  dragIndex.current = i;
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  if (overIndex !== i) setOverIndex(i);
+                }}
+                onDrop={() => drop(i)}
+                onDragEnd={() => {
+                  dragIndex.current = null;
+                  setOverIndex(null);
+                }}
                 data-testid="scene-tab"
-                className={`flex min-w-[130px] flex-col items-start rounded-lg border px-3 py-2 text-left transition-colors ${
+                onClick={() => setSelectedId(s.id)}
+                className={`flex min-w-[150px] cursor-pointer flex-col items-start rounded-lg border px-3 py-2 text-left transition-colors ${
                   active
                     ? "border-reel bg-reel-soft"
                     : "border-line bg-panel hover:bg-paper"
-                }`}
+                } ${isOver ? "ring-2 ring-accent" : ""}`}
               >
-                <span className="flex items-center gap-1.5 text-xs font-mono text-ink-faint">
+                <span className="flex w-full items-center gap-1.5 text-xs font-mono text-ink-faint">
+                  <span
+                    className="cursor-grab select-none text-ink-faint/70"
+                    title="Drag to reorder"
+                    aria-hidden
+                  >
+                    ⠿
+                  </span>
                   <span
                     className={`inline-block h-1.5 w-1.5 rounded-full ${
                       s.hasVideo ? "bg-good" : "bg-line"
@@ -64,7 +124,7 @@ export function EpisodeView({
                     ? "all resolved"
                     : "no notes"}
                 </span>
-              </button>
+              </div>
             );
           })}
         </div>

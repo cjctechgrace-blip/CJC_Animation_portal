@@ -180,6 +180,31 @@ export async function addScenesAction(input: {
   return { ok: true };
 }
 
+/** Persist a new scene order for an episode. */
+export async function reorderScenesAction(input: {
+  episodeId: string;
+  orderedIds: string[];
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireUser();
+  const episode = await db.episode.findUnique({
+    where: { id: input.episodeId },
+    select: { id: true, scenes: { select: { id: true } } },
+  });
+  if (!episode) return { ok: false, error: "Episode not found." };
+
+  const valid = new Set(episode.scenes.map((s) => s.id));
+  const ordered = input.orderedIds.filter((id) => valid.has(id));
+
+  await db.$transaction(
+    ordered.map((id, i) =>
+      db.scene.update({ where: { id }, data: { order: i } })
+    )
+  );
+
+  revalidatePath(`/episodes/${input.episodeId}`);
+  return { ok: true };
+}
+
 /* --------------------------- comments --------------------------- */
 
 export async function addCommentAction(input: {
