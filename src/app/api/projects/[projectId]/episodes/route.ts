@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import {
-  ensureStorage,
-  storagePathFor,
-  extensionFor,
-} from "@/lib/storage";
+import { putMedia, extensionFor } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -43,12 +38,10 @@ export async function POST(
   let mimeType: string | null = null;
 
   if (file && file instanceof File && file.size > 0) {
-    ensureStorage();
     mimeType = file.type || "video/mp4";
     const ext = extensionFor(mimeType, file.name);
-    videoFile = `${randomUUID()}.${ext}`;
     const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(storagePathFor(videoFile), buffer);
+    videoFile = await putMedia("videos", `${randomUUID()}.${ext}`, buffer, mimeType);
   }
 
   const episode = await db.episode.create({

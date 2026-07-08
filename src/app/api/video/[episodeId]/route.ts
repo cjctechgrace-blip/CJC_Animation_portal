@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { Readable } from "node:stream";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { storagePathFor } from "@/lib/storage";
+import { storagePathFor, isCloudStorage, publicUrl } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -22,6 +22,11 @@ export async function GET(
   });
   if (!episode?.videoFile) {
     return new Response("No video", { status: 404 });
+  }
+
+  // Cloud: hand off to Supabase Storage's public URL (it supports Range/seeking).
+  if (isCloudStorage()) {
+    return Response.redirect(publicUrl(episode.videoFile), 307);
   }
 
   const filePath = storagePathFor(episode.videoFile);

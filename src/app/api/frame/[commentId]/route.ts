@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import fs from "node:fs";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { storagePathFor } from "@/lib/storage";
+import { storagePathFor, isCloudStorage, publicUrl } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -18,6 +18,10 @@ export async function GET(
     select: { frameImage: true },
   });
   if (!comment?.frameImage) return new Response("No frame", { status: 404 });
+
+  if (isCloudStorage()) {
+    return Response.redirect(publicUrl(comment.frameImage), 307);
+  }
 
   const filePath = storagePathFor(comment.frameImage);
   if (!fs.existsSync(filePath)) return new Response("Missing", { status: 404 });

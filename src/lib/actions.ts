@@ -104,7 +104,7 @@ export async function addCommentAction(input: {
 
   // Persist the annotated frame (if the reviewer drew one) as this note's start-frame.
   if (input.frameDataUrl) {
-    const frameImage = saveDataUrlPng(input.frameDataUrl, `frame-${created.id}`);
+    const frameImage = await saveDataUrlPng(input.frameDataUrl, `frame-${created.id}`);
     if (frameImage) {
       await db.comment.update({
         where: { id: created.id },
