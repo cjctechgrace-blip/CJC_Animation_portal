@@ -13,7 +13,7 @@ export default async function LoginPage() {
           <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-xl bg-reel text-lg font-bold text-white">
             ▶
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="text-3xl font-bold tracking-tight">
             CJC Animation Portal
           </h1>
           <p className="mt-1 text-sm text-ink-soft">

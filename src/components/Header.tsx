@@ -10,11 +10,11 @@ export function Header({ user }: { user: SessionUser }) {
         <Link href="/dashboard" className="flex items-center gap-2.5">
           <span
             aria-hidden
-            className="grid h-8 w-8 place-items-center rounded-lg bg-reel text-sm font-bold text-white"
+            className="grid h-9 w-9 place-items-center rounded-xl bg-reel text-sm font-bold text-white shadow-sm"
           >
             ▶
           </span>
-          <span className="font-semibold tracking-tight">
+          <span className="text-[15px] font-bold tracking-tight">
             CJC Animation Portal
           </span>
         </Link>

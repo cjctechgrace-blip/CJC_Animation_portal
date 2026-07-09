@@ -24,8 +24,8 @@ export default async function DashboardPage() {
       <main className="mx-auto max-w-6xl px-6 py-8">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">Projects</h1>
-            <p className="text-sm text-ink-soft">
+            <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
+            <p className="mt-0.5 text-sm text-ink-soft">
               Pick a project to review its episodes and leave feedback.
             </p>
           </div>
@@ -44,10 +44,10 @@ export default async function DashboardPage() {
               <li key={p.id}>
                 <Link
                   href={`/projects/${p.id}`}
-                  className="card block h-full p-5 transition-shadow hover:shadow-md"
+                  className="card block h-full p-5 transition-all hover:-translate-y-0.5 hover:border-reel/40 hover:shadow-md"
                   data-testid="project-card"
                 >
-                  <h3 className="font-semibold">{p.name}</h3>
+                  <h3 className="text-base font-bold tracking-tight">{p.name}</h3>
                   {p.description ? (
                     <p className="mt-1 line-clamp-2 text-sm text-ink-soft">
                       {p.description}

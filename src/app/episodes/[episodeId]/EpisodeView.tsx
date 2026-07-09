@@ -74,6 +74,15 @@ export function EpisodeView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
 
+  // Live updates: quietly re-fetch every 10s (when the tab is visible) so notes,
+  // replies, and discussion posts from teammates show up without a reload.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") router.refresh();
+    }, 10000);
+    return () => clearInterval(id);
+  }, [router]);
+
   const selected =
     items.find((s) => s.id === selectedId) ?? items[0] ?? null;
   const episodeScenes = items.map((s, i) => ({

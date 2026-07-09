@@ -82,6 +82,44 @@ export async function createProjectAction(
   redirect(`/projects/${project.id}`);
 }
 
+/** Delete a project and everything in it (episodes, scenes, notes, edits,
+ * discussion), purging all its stored clips + frames. */
+export async function deleteProjectAction(input: {
+  projectId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireUser();
+  const project = await db.project.findUnique({
+    where: { id: input.projectId },
+    select: {
+      id: true,
+      episodes: {
+        select: {
+          scenes: {
+            select: {
+              videoFile: true,
+              comments: { select: { frameImage: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const keys: (string | null)[] = [];
+  for (const ep of project.episodes) {
+    for (const s of ep.scenes) {
+      keys.push(s.videoFile);
+      for (const c of s.comments) keys.push(c.frameImage);
+    }
+  }
+  await deleteObjects(keys);
+  await db.project.delete({ where: { id: project.id } });
+
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
 /* --------------------------- episodes --------------------------- */
 
 /** Hand the browser a one-time signed URL so it can upload the video directly

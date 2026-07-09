@@ -241,6 +241,36 @@ export function SceneReview({
     }
   }
 
+  function saveFrame() {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || !video.videoWidth) {
+      setError("Let the clip load a moment, then try again.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    try {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `frame-${formatTimecode(
+          Math.round(video.currentTime * 1000)
+        ).replace(/[:.]/g, "-")}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }, "image/png");
+      setError(null);
+    } catch {
+      setError("Couldn't capture this frame (video still loading).");
+    }
+  }
+
   function submitNote() {
     const body = draft.trim();
     if (!body) {
@@ -417,6 +447,14 @@ export function SceneReview({
                   ◈ Mark a spot / region
                 </button>
               )}
+              <button
+                type="button"
+                onClick={saveFrame}
+                data-testid="save-frame"
+                className="ml-auto font-medium text-ink-soft hover:text-ink"
+              >
+                📷 Save frame
+              </button>
             </div>
           ) : null}
 

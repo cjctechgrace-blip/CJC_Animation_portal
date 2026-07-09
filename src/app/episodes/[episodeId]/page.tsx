@@ -159,7 +159,7 @@ export default async function EpisodePage({
             >
               ← {episode.project.name}
             </Link>
-            <h1 className="text-lg font-semibold tracking-tight">
+            <h1 className="text-xl font-bold tracking-tight">
               {episode.title}
             </h1>
             {episode.description ? (

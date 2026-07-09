@@ -6,6 +6,7 @@ import { Header } from "@/components/Header";
 import { formatWhen } from "@/lib/format";
 import { isCloudStorage } from "@/lib/storage";
 import { NewEpisodeForm } from "./NewEpisodeForm";
+import { DeleteProjectButton } from "./DeleteProjectButton";
 
 export const dynamic = "force-dynamic";
 
@@ -32,16 +33,19 @@ export default async function ProjectPage({
     <div className="min-h-screen">
       <Header user={user} />
       <main className="mx-auto max-w-6xl px-6 py-8">
-        <Link
-          href="/dashboard"
-          className="text-sm text-ink-faint hover:text-ink"
-        >
-          ← All projects
-        </Link>
+        <div className="flex items-center justify-between gap-4">
+          <Link
+            href="/dashboard"
+            className="text-sm text-ink-faint hover:text-ink"
+          >
+            ← All projects
+          </Link>
+          <DeleteProjectButton projectId={project.id} name={project.name} />
+        </div>
 
         <div className="mb-6 mt-2 flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">
+            <h1 className="text-2xl font-bold tracking-tight">
               {project.name}
             </h1>
             {project.description ? (
