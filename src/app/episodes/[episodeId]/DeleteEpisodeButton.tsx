@@ -26,6 +26,7 @@ export function DeleteEpisodeButton({
     start(async () => {
       const res = await deleteEpisodeAction({ episodeId });
       router.push(`/projects/${res.projectId ?? projectId}`);
+      router.refresh();
     });
   }
 

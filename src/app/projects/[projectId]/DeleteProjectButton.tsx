@@ -24,6 +24,7 @@ export function DeleteProjectButton({
     start(async () => {
       await deleteProjectAction({ projectId });
       router.push("/dashboard");
+      router.refresh();
     });
   }
 
