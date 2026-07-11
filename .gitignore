@@ -22,6 +22,9 @@ npm-debug.log*
 # ffmpeg.wasm core (copied into /public at build)
 /public/ffmpeg
 
+# full handoff doc with LIVE SECRETS — never commit (repo is public)
+/HANDOFF-FULL.md
+
 # database (local sqlite)
 /prisma/*.db
 /prisma/*.db-journal
