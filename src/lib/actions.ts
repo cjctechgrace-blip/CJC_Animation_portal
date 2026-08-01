@@ -13,13 +13,22 @@ import {
   deleteObjects,
 } from "./storage";
 import { generateHiggsfieldPrompt } from "./prompt";
+import { isThrottled, recordFailure, clearFailures } from "./rateLimit";
 import {
   createSession,
   destroySession,
   getCurrentUser,
+  requireAdmin,
   requireUser,
   verifyCredentials,
+  type SessionUser,
 } from "./auth";
+import bcrypt from "bcryptjs";
+
+/** Admins can manage anything; members only what they created. */
+function canManage(user: SessionUser, ownerId: string): boolean {
+  return user.role === "admin" || user.id === ownerId;
+}
 
 /* ----------------------------- auth ----------------------------- */
 
@@ -36,11 +45,20 @@ export async function loginAction(
     return { error: "Enter your email and password." };
   }
 
+  const throttleKey = email.trim().toLowerCase();
+  if (isThrottled(throttleKey)) {
+    return {
+      error: "Too many failed attempts. Wait 15 minutes, then try again.",
+    };
+  }
+
   const user = await verifyCredentials(email, password);
   if (!user) {
+    recordFailure(throttleKey);
     return { error: "That email and password don't match. Try again." };
   }
 
+  clearFailures(throttleKey);
   await createSession(user.id);
   redirect("/dashboard");
 }
@@ -87,11 +105,12 @@ export async function createProjectAction(
 export async function deleteProjectAction(input: {
   projectId: string;
 }): Promise<{ ok: boolean; error?: string }> {
-  await requireUser();
+  const user = await requireUser();
   const project = await db.project.findUnique({
     where: { id: input.projectId },
     select: {
       id: true,
+      createdById: true,
       episodes: {
         select: {
           scenes: {
@@ -105,6 +124,9 @@ export async function deleteProjectAction(input: {
     },
   });
   if (!project) return { ok: false, error: "Project not found." };
+  if (!canManage(user, project.createdById)) {
+    return { ok: false, error: "Only an admin or the project's creator can delete it." };
+  }
 
   const keys: (string | null)[] = [];
   for (const ep of project.episodes) {
@@ -223,17 +245,21 @@ export async function addScenesAction(input: {
 export async function deleteSceneAction(input: {
   sceneId: string;
 }): Promise<{ ok: boolean; episodeId?: string; error?: string }> {
-  await requireUser();
+  const user = await requireUser();
   const scene = await db.scene.findUnique({
     where: { id: input.sceneId },
     select: {
       id: true,
       episodeId: true,
       videoFile: true,
+      createdById: true,
       comments: { select: { frameImage: true } },
     },
   });
   if (!scene) return { ok: false, error: "Scene not found." };
+  if (!canManage(user, scene.createdById)) {
+    return { ok: false, error: "Only an admin or the scene's uploader can delete it." };
+  }
 
   await deleteObjects([scene.videoFile, ...scene.comments.map((c) => c.frameImage)]);
   await db.scene.delete({ where: { id: scene.id } });
@@ -246,18 +272,22 @@ export async function deleteSceneAction(input: {
 export async function deleteEpisodeAction(input: {
   episodeId: string;
 }): Promise<{ ok: boolean; projectId?: string; error?: string }> {
-  await requireUser();
+  const user = await requireUser();
   const episode = await db.episode.findUnique({
     where: { id: input.episodeId },
     select: {
       id: true,
       projectId: true,
+      createdById: true,
       scenes: {
         select: { videoFile: true, comments: { select: { frameImage: true } } },
       },
     },
   });
   if (!episode) return { ok: false, error: "Episode not found." };
+  if (!canManage(user, episode.createdById)) {
+    return { ok: false, error: "Only an admin or the episode's creator can delete it." };
+  }
 
   const keys: (string | null)[] = [];
   for (const s of episode.scenes) {
@@ -396,17 +426,21 @@ export async function toggleResolvedAction(input: {
 export async function deleteCommentAction(input: {
   commentId: string;
 }): Promise<{ ok: boolean; error?: string }> {
-  await requireUser();
+  const user = await requireUser();
   const comment = await db.comment.findUnique({
     where: { id: input.commentId },
     select: {
       id: true,
       frameImage: true,
+      authorId: true,
       scene: { select: { episodeId: true } },
       replies: { select: { frameImage: true } },
     },
   });
   if (!comment) return { ok: false, error: "Note not found." };
+  if (!canManage(user, comment.authorId)) {
+    return { ok: false, error: "Only an admin or the note's author can delete it." };
+  }
 
   await deleteObjects([
     comment.frameImage,
@@ -532,12 +566,15 @@ export async function updateEditAction(input: {
 export async function deleteEditAction(input: {
   editId: string;
 }): Promise<{ ok: boolean; error?: string }> {
-  await requireUser();
+  const user = await requireUser();
   const edit = await db.edit.findUnique({
     where: { id: input.editId },
-    select: { id: true, scene: { select: { episodeId: true } } },
+    select: { id: true, createdById: true, scene: { select: { episodeId: true } } },
   });
   if (!edit) return { ok: false, error: "Edit not found." };
+  if (!canManage(user, edit.createdById)) {
+    return { ok: false, error: "Only an admin or the edit's creator can delete it." };
+  }
   await db.edit.delete({ where: { id: input.editId } });
   revalidatePath(`/episodes/${edit.scene.episodeId}`);
   return { ok: true };
@@ -621,4 +658,157 @@ export async function togglePostVoteAction(input: {
 /* Ensure a caller is authenticated (used by route handlers indirectly). */
 export async function currentUserOrNull() {
   return getCurrentUser();
+}
+
+/* --------------------------- team management --------------------------- */
+
+const INVITE_DAYS = 7;
+const MIN_PASSWORD = 8;
+
+/** Admin: create a one-time invite (new teammate) or password-reset link. */
+export async function createInviteAction(input: {
+  email: string;
+  name?: string;
+  role?: string;
+  kind?: "invite" | "reset";
+}): Promise<{ ok: boolean; token?: string; error?: string }> {
+  const admin = await requireAdmin();
+  const email = input.email.trim().toLowerCase();
+  const kind = input.kind === "reset" ? "reset" : "invite";
+  const role = input.role === "admin" ? "admin" : "member";
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "Enter a valid email address." };
+  }
+
+  const existing = await db.user.findUnique({ where: { email } });
+  if (kind === "invite" && existing) {
+    return { ok: false, error: "That email already has an account. Use a password reset instead." };
+  }
+  if (kind === "reset" && !existing) {
+    return { ok: false, error: "No account with that email. Send an invite instead." };
+  }
+
+  const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
+  await db.invite.create({
+    data: {
+      email,
+      name: (input.name ?? "").trim(),
+      role,
+      kind,
+      token,
+      createdById: admin.id,
+      expiresAt: new Date(Date.now() + INVITE_DAYS * 24 * 60 * 60 * 1000),
+    },
+  });
+
+  revalidatePath("/team");
+  return { ok: true, token };
+}
+
+/** Admin: revoke a pending invite/reset link. */
+export async function revokeInviteAction(input: {
+  inviteId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireAdmin();
+  await db.invite.deleteMany({ where: { id: input.inviteId } });
+  revalidatePath("/team");
+  return { ok: true };
+}
+
+/** Public: accept an invite / reset a password via its one-time token. */
+export async function acceptInviteAction(input: {
+  token: string;
+  name: string;
+  password: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const invite = await db.invite.findUnique({ where: { token: input.token } });
+  if (!invite || invite.usedAt || invite.expiresAt < new Date()) {
+    return { ok: false, error: "This link is invalid or has expired. Ask your admin for a new one." };
+  }
+
+  const password = input.password;
+  if (password.length < MIN_PASSWORD) {
+    return { ok: false, error: `Choose a password of at least ${MIN_PASSWORD} characters.` };
+  }
+  const name = input.name.trim() || invite.name || invite.email.split("@")[0];
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  let userId: string;
+  if (invite.kind === "reset") {
+    const user = await db.user.findUnique({ where: { email: invite.email } });
+    if (!user) return { ok: false, error: "That account no longer exists." };
+    await db.user.update({
+      where: { id: user.id },
+      data: { passwordHash, active: true },
+    });
+    // a reset invalidates every existing session for the account
+    await db.session.deleteMany({ where: { userId: user.id } });
+    userId = user.id;
+  } else {
+    const existing = await db.user.findUnique({ where: { email: invite.email } });
+    if (existing) return { ok: false, error: "This account was already created. Sign in instead." };
+    const user = await db.user.create({
+      data: {
+        email: invite.email,
+        name,
+        role: invite.role,
+        passwordHash,
+      },
+    });
+    userId = user.id;
+  }
+
+  await db.invite.update({
+    where: { id: invite.id },
+    data: { usedAt: new Date() },
+  });
+
+  await createSession(userId);
+  redirect("/dashboard");
+}
+
+/** Admin: deactivate (or re-activate) a member. Deactivation kills their sessions. */
+export async function setUserActiveAction(input: {
+  userId: string;
+  active: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  const admin = await requireAdmin();
+  if (input.userId === admin.id) {
+    return { ok: false, error: "You can't deactivate your own account." };
+  }
+  const user = await db.user.findUnique({ where: { id: input.userId } });
+  if (!user) return { ok: false, error: "User not found." };
+
+  await db.user.update({
+    where: { id: user.id },
+    data: { active: input.active },
+  });
+  if (!input.active) {
+    await db.session.deleteMany({ where: { userId: user.id } });
+  }
+  revalidatePath("/team");
+  return { ok: true };
+}
+
+/** Admin: change a member's role. The last active admin can't demote themself. */
+export async function setUserRoleAction(input: {
+  userId: string;
+  role: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const admin = await requireAdmin();
+  const role = input.role === "admin" ? "admin" : "member";
+
+  if (input.userId === admin.id && role !== "admin") {
+    const otherAdmins = await db.user.count({
+      where: { role: "admin", active: true, NOT: { id: admin.id } },
+    });
+    if (otherAdmins === 0) {
+      return { ok: false, error: "You're the only admin — promote someone else first." };
+    }
+  }
+
+  await db.user.update({ where: { id: input.userId }, data: { role } });
+  revalidatePath("/team");
+  return { ok: true };
 }

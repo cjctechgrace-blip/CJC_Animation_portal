@@ -33,16 +33,18 @@ export function NewEpisodeForm({
     try {
       let scenes: { title: string; videoKey: string; mimeType: string }[] = [];
       if (files.length) {
-        scenes = await uploadScenesToStorage(files, (s) => {
-          setStatus(
-            s.phase === "compress"
-              ? `Compressing clip ${s.index + 1} of ${s.total}${
-                  s.note ? ` — ${s.note}` : "…"
-                }`
-              : `Uploading clip ${s.index + 1} of ${s.total}…`
-          );
-          setPct(s.pct);
-        });
+        scenes = await uploadScenesToStorage(
+          files,
+          (s) => {
+            const base =
+              s.phase === "compress"
+                ? `Compressing clip ${s.index + 1} of ${s.total}…`
+                : `Uploading clip ${s.index + 1} of ${s.total}…`;
+            setStatus(s.note ? `${base} ${s.note}` : base);
+            setPct(s.pct);
+          },
+          cloud
+        );
       }
       setStatus("Creating episode…");
       const ep = await createEpisodeWithScenesAction({
@@ -74,17 +76,8 @@ export function NewEpisodeForm({
     );
   }
 
-  const formProps = cloud
-    ? { onSubmit: handleSubmit }
-    : {
-        action: `/api/projects/${projectId}/episodes`,
-        method: "post",
-        encType: "multipart/form-data",
-        onSubmit: () => setBusy(true),
-      };
-
   return (
-    <form {...formProps} className="card w-full max-w-lg p-5">
+    <form onSubmit={handleSubmit} className="card w-full max-w-lg p-5">
       <h2 className="mb-1 font-semibold">Add episode</h2>
       <p className="mb-3 text-xs text-ink-faint">
         An episode is a set of short scene clips. Add them all at once.
@@ -139,7 +132,7 @@ export function NewEpisodeForm({
         />
         <p className="mt-1 text-xs text-ink-faint">
           Select every clip in your scene folder (open the folder, then Ctrl+A).
-          Each clip must be under 50 MB.
+          Big clips are compressed right in your browser before uploading.
           {files.length > 0 ? ` ${files.length} clip(s) selected.` : ""}
         </p>
       </div>

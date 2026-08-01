@@ -22,7 +22,7 @@ export async function verifyCredentials(
   const user = await db.user.findUnique({
     where: { email: email.trim().toLowerCase() },
   });
-  if (!user) return null;
+  if (!user || !user.active) return null;
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) return null;
   return { id: user.id, email: user.email, name: user.name, role: user.role };
@@ -65,6 +65,11 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   }
 
   const u = session.user;
+  if (!u.active) {
+    // deactivated mid-session: kill the session immediately
+    await db.session.deleteMany({ where: { id: token } });
+    return null;
+  }
   return { id: u.id, email: u.email, name: u.name, role: u.role };
 }
 
@@ -72,5 +77,12 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
 export async function requireUser(): Promise<SessionUser> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  return user;
+}
+
+/** Guard for admin-only pages/actions. */
+export async function requireAdmin(): Promise<SessionUser> {
+  const user = await requireUser();
+  if (user.role !== "admin") redirect("/dashboard");
   return user;
 }

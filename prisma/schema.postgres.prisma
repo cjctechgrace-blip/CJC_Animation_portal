@@ -17,16 +17,34 @@ model User {
   name         String
   passwordHash String
   role         String   @default("member")
+  active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
-  sessions  Session[]
-  projects  Project[]
-  episodes  Episode[]
-  scenes    Scene[]
-  comments  Comment[]
-  posts     Post[]
-  postVotes PostVote[]
-  edits     Edit[]
+  sessions       Session[]
+  projects       Project[]
+  episodes       Episode[]
+  scenes         Scene[]
+  comments       Comment[]
+  posts          Post[]
+  postVotes      PostVote[]
+  edits          Edit[]
+  invitesCreated Invite[]
+}
+
+model Invite {
+  id          String    @id @default(cuid())
+  email       String
+  name        String    @default("")
+  role        String    @default("member")
+  kind        String    @default("invite")
+  token       String    @unique
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([email])
 }
 
 model Session {

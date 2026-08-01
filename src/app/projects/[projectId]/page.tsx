@@ -40,7 +40,9 @@ export default async function ProjectPage({
           >
             ← All projects
           </Link>
-          <DeleteProjectButton projectId={project.id} name={project.name} />
+          {user.role === "admin" || project.createdById === user.id ? (
+            <DeleteProjectButton projectId={project.id} name={project.name} />
+          ) : null}
         </div>
 
         <div className="mb-6 mt-2 flex items-start justify-between gap-4">

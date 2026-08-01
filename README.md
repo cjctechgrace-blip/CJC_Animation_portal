@@ -4,7 +4,18 @@ A team review & feedback portal for animated episodes — the Frame.io-style
 pattern (log in, watch, pin comments to an exact moment) tailored for an
 AI-animation workflow. **Phase 1** is built and fully e2e-tested locally.
 
-## What works today (Phase 1 + 2)
+## What works today (Phases 0–4)
+
+- **In-browser video compression** — big clips are re-encoded with WebCodecs
+  before upload (5–10× smaller), with progress bars, retries, and pre-flight
+  size checks.
+- **Team management** (`/team`, admins) — invite links where teammates set
+  their own password, password resets, role changes, deactivation.
+- **Role enforcement** — destructive actions need admin rights or ownership.
+- **Activity feed** — every episode shows who did what, when.
+- **Login throttling** and near-live updates (5 s focus-aware refresh).
+
+## Earlier phases (1 + 2)
 
 - **Invite-only login** — accounts are seeded/created by an admin, no open signup.
 - **Projects → Episodes** — create projects, upload episode videos.

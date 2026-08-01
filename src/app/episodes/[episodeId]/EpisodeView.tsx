@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { reorderScenesAction, deleteSceneAction } from "@/lib/actions";
-import { SceneReview, type SceneComment } from "./SceneReview";
+import { SceneReview, type SceneComment, type Viewer } from "./SceneReview";
 import { AddScenesForm } from "./AddScenesForm";
 import {
   EpisodeDiscussion,
@@ -16,6 +16,7 @@ export type SceneData = {
   title: string;
   hasVideo: boolean;
   videoSrc: string | null;
+  createdById: string;
   openCount: number;
   comments: SceneComment[];
   edits: EditRecord[];
@@ -26,11 +27,13 @@ export function EpisodeView({
   cloud,
   scenes,
   posts,
+  viewer,
 }: {
   episodeId: string;
   cloud: boolean;
   scenes: SceneData[];
   posts: DiscussionPost[];
+  viewer: Viewer;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<SceneData[]>(scenes);
@@ -74,13 +77,23 @@ export function EpisodeView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
 
-  // Live updates: quietly re-fetch every 10s (when the tab is visible) so notes,
-  // replies, and discussion posts from teammates show up without a reload.
+  // Live updates: quietly re-fetch every 5s while the tab is visible, and
+  // immediately when the user comes back to the tab — teammates' notes,
+  // replies, and posts appear without a reload.
   useEffect(() => {
     const id = setInterval(() => {
       if (document.visibilityState === "visible") router.refresh();
-    }, 10000);
-    return () => clearInterval(id);
+    }, 5000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") router.refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
   }, [router]);
 
   const selected =
@@ -164,18 +177,20 @@ export function EpisodeView({
                     : "border-line bg-panel hover:bg-paper"
                 } ${isOver ? "ring-2 ring-accent" : ""}`}
               >
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteScene(s.id, s.title);
-                  }}
-                  data-testid="delete-scene"
-                  title="Delete scene"
-                  className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded text-ink-faint hover:bg-red-50 hover:text-red-600"
-                >
-                  ×
-                </button>
+                {viewer.isAdmin || s.createdById === viewer.id ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteScene(s.id, s.title);
+                    }}
+                    data-testid="delete-scene"
+                    title="Delete scene"
+                    className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded text-ink-faint hover:bg-red-50 hover:text-red-600"
+                  >
+                    ×
+                  </button>
+                ) : null}
                 <span className="flex w-full items-center gap-1.5 text-xs font-mono text-ink-faint">
                   <span
                     className="cursor-grab select-none text-ink-faint/70"
@@ -223,6 +238,7 @@ export function EpisodeView({
             activateNonce={activateReq?.nonce ?? 0}
             episodeScenes={episodeScenes}
             edits={selected.edits}
+            viewer={viewer}
           />
         ) : (
           <div className="card grid place-items-center px-6 py-16 text-center">

@@ -6,8 +6,16 @@ import path from "node:path";
 const db = new PrismaClient();
 
 const DEMO_PASSWORD = "password123";
+// Local-dev seed only. Real credentials are never committed (repo is public);
+// override the local admin password with SEED_ADMIN_PASSWORD if desired.
 const USERS = [
-  { email: "cjctechgrace@gmail.com", name: "Grace (Admin)", role: "admin", pw: "CJCportal2026!" },
+  { email: "admin@cjc.test", name: "Admin (Test)", role: "admin", pw: DEMO_PASSWORD },
+  {
+    email: "cjctechgrace@gmail.com",
+    name: "Grace (Admin)",
+    role: "admin",
+    pw: process.env.SEED_ADMIN_PASSWORD || DEMO_PASSWORD,
+  },
   { email: "editor@cjc.test", name: "Daniel (Editor)", role: "member", pw: DEMO_PASSWORD },
   { email: "reviewer@cjc.test", name: "Ada (Reviewer)", role: "member", pw: DEMO_PASSWORD },
 ];
