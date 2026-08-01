@@ -29,6 +29,8 @@ model User {
   postVotes      PostVote[]
   edits          Edit[]
   invitesCreated Invite[]
+  approvals      EpisodeApproval[]
+  visits         EpisodeVisit[]
 }
 
 model Invite {
@@ -84,11 +86,37 @@ model Episode {
   publishAt      DateTime?
   youtubeVideoId String?
 
-  scenes Scene[]
-  posts  Post[]
+  scenes    Scene[]
+  posts     Post[]
+  approvals EpisodeApproval[]
+  visits    EpisodeVisit[]
 
   @@index([projectId])
   @@index([status])
+}
+
+model EpisodeApproval {
+  id        String   @id @default(cuid())
+  episodeId String
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([episodeId, userId])
+  @@index([episodeId])
+}
+
+model EpisodeVisit {
+  id        String   @id @default(cuid())
+  episodeId String
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastAt    DateTime @default(now())
+
+  @@unique([episodeId, userId])
+  @@index([episodeId])
 }
 
 model Scene {

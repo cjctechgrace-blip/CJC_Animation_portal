@@ -14,6 +14,9 @@ export type BoardEpisode = {
   youtubeVideoId: string | null;
   sceneCount: number;
   clipCount: number;
+  approvals: number;
+  viewed: number;
+  feedback: number;
 };
 
 export function BoardCard({
@@ -57,6 +60,13 @@ export function BoardCard({
       <p className="mt-0.5 text-[11px] text-ink-faint">
         {episode.project} · {episode.sceneCount}{" "}
         {episode.sceneCount === 1 ? "scene" : "scenes"}
+      </p>
+      <p className="mt-1 text-[11px] text-ink-soft" data-testid="card-stats">
+        👀 {episode.viewed} viewed ·{" "}
+        <span className={episode.approvals > 0 ? "font-semibold text-good" : ""}>
+          ✓ {episode.approvals} approved
+        </span>{" "}
+        · 💬 {episode.feedback}
       </p>
 
       {episode.publishAt ? (

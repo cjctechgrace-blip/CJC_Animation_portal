@@ -29,6 +29,8 @@ model User {
   postVotes      PostVote[]
   edits          Edit[]
   invitesCreated Invite[]
+  approvals      EpisodeApproval[]
+  visits         EpisodeVisit[]
 }
 
 // One-time links: invite a new teammate (they pick their own password) or let
@@ -87,11 +89,39 @@ model Episode {
   publishAt      DateTime?
   youtubeVideoId String?
 
-  scenes Scene[]
-  posts  Post[]
+  scenes    Scene[]
+  posts     Post[]
+  approvals EpisodeApproval[]
+  visits    EpisodeVisit[]
 
   @@index([projectId])
   @@index([status])
+}
+
+// A reviewer's personal sign-off on an episode ("looks good to me").
+model EpisodeApproval {
+  id        String   @id @default(cuid())
+  episodeId String
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([episodeId, userId])
+  @@index([episodeId])
+}
+
+// Who has opened an episode (for the "N viewed" count).
+model EpisodeVisit {
+  id        String   @id @default(cuid())
+  episodeId String
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastAt    DateTime @default(now())
+
+  @@unique([episodeId, userId])
+  @@index([episodeId])
 }
 
 // A scene is one short clip (often a single AI generation). Episodes are made of

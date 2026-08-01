@@ -26,9 +26,15 @@ import {
 } from "./auth";
 import bcrypt from "bcryptjs";
 
-/** Admins can manage anything; members only what they created. */
+/** Notes/replies: admins can manage anything; others only what they authored. */
 function canManage(user: SessionUser, ownerId: string): boolean {
   return user.role === "admin" || user.id === ownerId;
+}
+
+/** Content (projects/episodes/scenes/edits): admins AND video editors can
+ * manage anything; reviewers only what they created themselves. */
+function canManageContent(user: SessionUser, ownerId: string): boolean {
+  return user.role === "admin" || user.role === "editor" || user.id === ownerId;
 }
 
 /* ----------------------------- auth ----------------------------- */
@@ -125,8 +131,8 @@ export async function deleteProjectAction(input: {
     },
   });
   if (!project) return { ok: false, error: "Project not found." };
-  if (!canManage(user, project.createdById)) {
-    return { ok: false, error: "Only an admin or the project's creator can delete it." };
+  if (!canManageContent(user, project.createdById)) {
+    return { ok: false, error: "Only an editor, an admin, or the project's creator can delete it." };
   }
 
   const keys: (string | null)[] = [];
@@ -282,8 +288,8 @@ export async function deleteSceneAction(input: {
     },
   });
   if (!scene) return { ok: false, error: "Scene not found." };
-  if (!canManage(user, scene.createdById)) {
-    return { ok: false, error: "Only an admin or the scene's uploader can delete it." };
+  if (!canManageContent(user, scene.createdById)) {
+    return { ok: false, error: "Only an editor, an admin, or the scene's uploader can delete it." };
   }
 
   await deleteObjects([scene.videoFile, ...scene.comments.map((c) => c.frameImage)]);
@@ -310,8 +316,8 @@ export async function deleteEpisodeAction(input: {
     },
   });
   if (!episode) return { ok: false, error: "Episode not found." };
-  if (!canManage(user, episode.createdById)) {
-    return { ok: false, error: "Only an admin or the episode's creator can delete it." };
+  if (!canManageContent(user, episode.createdById)) {
+    return { ok: false, error: "Only an editor, an admin, or the episode's creator can delete it." };
   }
 
   const keys: (string | null)[] = [];
@@ -597,8 +603,8 @@ export async function deleteEditAction(input: {
     select: { id: true, createdById: true, scene: { select: { episodeId: true } } },
   });
   if (!edit) return { ok: false, error: "Edit not found." };
-  if (!canManage(user, edit.createdById)) {
-    return { ok: false, error: "Only an admin or the edit's creator can delete it." };
+  if (!canManageContent(user, edit.createdById)) {
+    return { ok: false, error: "Only an editor, an admin, or the edit's creator can delete it." };
   }
   await db.edit.delete({ where: { id: input.editId } });
   revalidatePath(`/episodes/${edit.scene.episodeId}`);
@@ -957,4 +963,35 @@ export async function sweepPublishedEpisodes(): Promise<void> {
     where: { status: "scheduled", publishAt: { lte: new Date() } },
     data: { status: "published" },
   });
+}
+
+/* ------------------------- reviewer approvals ------------------------- */
+
+/** Toggle the signed-in user's personal approval of an episode. */
+export async function toggleEpisodeApprovalAction(input: {
+  episodeId: string;
+}): Promise<{ ok: boolean; approved?: boolean; error?: string }> {
+  const user = await requireUser();
+  const episode = await db.episode.findUnique({
+    where: { id: input.episodeId },
+    select: { id: true },
+  });
+  if (!episode) return { ok: false, error: "Episode not found." };
+
+  const existing = await db.episodeApproval.findUnique({
+    where: { episodeId_userId: { episodeId: episode.id, userId: user.id } },
+  });
+  let approved: boolean;
+  if (existing) {
+    await db.episodeApproval.delete({ where: { id: existing.id } });
+    approved = false;
+  } else {
+    await db.episodeApproval.create({
+      data: { episodeId: episode.id, userId: user.id },
+    });
+    approved = true;
+  }
+  revalidatePath(`/episodes/${episode.id}`);
+  revalidatePath("/board");
+  return { ok: true, approved };
 }

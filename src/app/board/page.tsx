@@ -23,8 +23,10 @@ export default async function BoardPage() {
     orderBy: [{ publishAt: "asc" }, { createdAt: "desc" }],
     include: {
       project: { select: { name: true } },
-      scenes: { select: { id: true, videoFile: true } },
-      _count: { select: { posts: true } },
+      scenes: {
+        select: { id: true, videoFile: true, _count: { select: { comments: true } } },
+      },
+      _count: { select: { posts: true, approvals: true, visits: true } },
     },
   });
 
@@ -37,6 +39,9 @@ export default async function BoardPage() {
     youtubeVideoId: e.youtubeVideoId,
     sceneCount: e.scenes.length,
     clipCount: e.scenes.filter((s) => s.videoFile).length,
+    approvals: e._count.approvals,
+    viewed: e._count.visits,
+    feedback: e.scenes.reduce((n, s) => n + s._count.comments, 0),
   }));
 
   const upcoming = cards
