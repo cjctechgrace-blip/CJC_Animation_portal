@@ -43,3 +43,5 @@ next-env.d.ts
 
 .vercel
 .env*
+# the template has no secrets and documents required variables
+!.env.example

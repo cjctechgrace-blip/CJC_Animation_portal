@@ -88,33 +88,22 @@ export function MemberRow({ member, isSelf }: { member: Member; isSelf: boolean 
           </p>
         </div>
 
-        <span
-          className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
-            member.role === "admin"
-              ? "bg-reel-soft text-reel"
-              : "bg-line text-ink-soft"
-          }`}
+        <select
+          className="field w-auto px-2 py-1 text-xs"
+          value={["admin", "editor", "reviewer"].includes(member.role) ? member.role : "reviewer"}
+          disabled={busy}
+          onChange={(e) =>
+            run(() => setUserRoleAction({ userId: member.id, role: e.target.value }))
+          }
+          data-testid="role-select"
+          title="admin: manages the team · editor: sees the publishing board · reviewer: reviews only"
         >
-          {member.role}
-        </span>
+          <option value="admin">admin</option>
+          <option value="editor">editor</option>
+          <option value="reviewer">reviewer</option>
+        </select>
 
         <div className="flex items-center gap-1 text-xs">
-          <button
-            type="button"
-            className="btn-ghost px-2 py-1 text-xs"
-            disabled={busy}
-            onClick={() =>
-              run(() =>
-                setUserRoleAction({
-                  userId: member.id,
-                  role: member.role === "admin" ? "member" : "admin",
-                })
-              )
-            }
-            data-testid="toggle-role"
-          >
-            {member.role === "admin" ? "Make member" : "Make admin"}
-          </button>
           <button
             type="button"
             className="btn-ghost px-2 py-1 text-xs"

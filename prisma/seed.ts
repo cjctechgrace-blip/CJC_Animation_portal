@@ -16,8 +16,8 @@ const USERS = [
     role: "admin",
     pw: process.env.SEED_ADMIN_PASSWORD || DEMO_PASSWORD,
   },
-  { email: "editor@cjc.test", name: "Daniel (Editor)", role: "member", pw: DEMO_PASSWORD },
-  { email: "reviewer@cjc.test", name: "Ada (Reviewer)", role: "member", pw: DEMO_PASSWORD },
+  { email: "editor@cjc.test", name: "Daniel (Editor)", role: "editor", pw: DEMO_PASSWORD },
+  { email: "reviewer@cjc.test", name: "Ada (Reviewer)", role: "reviewer", pw: DEMO_PASSWORD },
 ];
 
 function installDemoVideo(): string | null {

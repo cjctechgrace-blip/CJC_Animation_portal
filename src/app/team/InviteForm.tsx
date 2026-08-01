@@ -9,7 +9,7 @@ export function InviteForm() {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState("member");
+  const [role, setRole] = useState("reviewer");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
@@ -122,7 +122,8 @@ export function InviteForm() {
           value={role}
           onChange={(e) => setRole(e.target.value)}
         >
-          <option value="member">Member — review, upload, edit</option>
+          <option value="reviewer">Reviewer — watch, annotate, discuss</option>
+          <option value="editor">Video editor — also sees the publishing board & schedule</option>
           <option value="admin">Admin — also manages the team</option>
         </select>
       </div>

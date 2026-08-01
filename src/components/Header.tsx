@@ -20,6 +20,15 @@ export function Header({ user }: { user: SessionUser }) {
         </Link>
 
         <div className="flex items-center gap-3">
+          {user.role === "admin" || user.role === "editor" ? (
+            <Link
+              href="/board"
+              className="btn-ghost px-3 py-1.5 text-xs"
+              data-testid="board-link"
+            >
+              Board
+            </Link>
+          ) : null}
           {user.role === "admin" ? (
             <Link
               href="/team"

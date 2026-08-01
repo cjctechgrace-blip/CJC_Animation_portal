@@ -3,6 +3,14 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { isCloudStorage, publicUrl } from "@/lib/storage";
+import {
+  isBunnyStorage,
+  isBunnyKey,
+  bunnyVideoIdFromKey,
+  getBunnyVideoState,
+  type BunnyVideoState,
+} from "@/lib/bunny";
+import type { UploadMode } from "@/lib/uploadScenes";
 import { Header } from "@/components/Header";
 import { EpisodeView, type SceneData } from "./EpisodeView";
 import { DeleteEpisodeButton } from "./DeleteEpisodeButton";
@@ -66,6 +74,25 @@ export default async function EpisodePage({
   if (!episode) notFound();
 
   const cloud = isCloudStorage();
+  const uploadMode: UploadMode = isBunnyStorage()
+    ? "bunny"
+    : cloud
+    ? "supabase"
+    : "local";
+
+  // Bunny-hosted clips: resolve encoding state + best MP4 rendition up front.
+  const bunnyStates = new Map<string, BunnyVideoState>();
+  await Promise.all(
+    episode.scenes
+      .filter((s) => s.videoFile && isBunnyKey(s.videoFile))
+      .map(async (s) => {
+        bunnyStates.set(
+          s.id,
+          await getBunnyVideoState(bunnyVideoIdFromKey(s.videoFile as string))
+        );
+      })
+  );
+
   const scenes: SceneData[] = episode.scenes.map((s) => {
     const comments = s.comments.map((c) => ({
       id: c.id,
@@ -92,7 +119,9 @@ export default async function EpisodePage({
       createdById: s.createdById,
       hasVideo: Boolean(s.videoFile),
       videoSrc: s.videoFile
-        ? cloud
+        ? isBunnyKey(s.videoFile)
+          ? bunnyStates.get(s.id)?.mp4Url ?? null // null while Bunny encodes
+          : cloud
           ? publicUrl(s.videoFile)
           : `/api/video/${s.id}`
         : null,
@@ -205,7 +234,7 @@ export default async function EpisodePage({
 
       <EpisodeView
         episodeId={episode.id}
-        cloud={cloud}
+        uploadMode={uploadMode}
         scenes={scenes}
         posts={posts}
         viewer={{ id: user.id, isAdmin: user.role === "admin" }}

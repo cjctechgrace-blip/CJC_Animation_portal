@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { Header } from "@/components/Header";
 import { formatWhen } from "@/lib/format";
 import { isCloudStorage } from "@/lib/storage";
+import { isBunnyStorage } from "@/lib/bunny";
 import { NewEpisodeForm } from "./NewEpisodeForm";
 import { DeleteProjectButton } from "./DeleteProjectButton";
 
@@ -56,7 +57,12 @@ export default async function ProjectPage({
               </p>
             ) : null}
           </div>
-          <NewEpisodeForm projectId={project.id} cloud={isCloudStorage()} />
+          <NewEpisodeForm
+            projectId={project.id}
+            uploadMode={
+              isBunnyStorage() ? "bunny" : isCloudStorage() ? "supabase" : "local"
+            }
+          />
         </div>
 
         {project.episodes.length === 0 ? (

@@ -80,10 +80,15 @@ model Episode {
   createdBy   User     @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
 
+  status         String    @default("review")
+  publishAt      DateTime?
+  youtubeVideoId String?
+
   scenes Scene[]
   posts  Post[]
 
   @@index([projectId])
+  @@index([status])
 }
 
 model Scene {
