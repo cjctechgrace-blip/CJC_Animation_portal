@@ -11,7 +11,7 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: "http://localhost:3100",
     trace: "on-first-retry",
     headless: true,
   },
@@ -19,8 +19,8 @@ export default defineConfig({
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
   ],
   webServer: {
-    command: "npm run start",
-    url: "http://localhost:3000",
+    command: "npm run start -- -p 3100",
+    url: "http://localhost:3100",
     timeout: 120_000,
     reuseExistingServer: !process.env.CI,
   },

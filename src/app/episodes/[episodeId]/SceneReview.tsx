@@ -19,9 +19,12 @@ import {
 type Reply = {
   id: string;
   body: string;
+  authorId: string;
   authorName: string;
   createdAt: string;
 };
+
+export type Viewer = { id: string; isAdmin: boolean };
 
 export type Mark = {
   type: "rect" | "point";
@@ -36,6 +39,7 @@ export type SceneComment = {
   body: string;
   timecodeMs: number | null;
   resolved: boolean;
+  authorId: string;
   authorName: string;
   createdAt: string;
   hasFrame: boolean;
@@ -88,6 +92,7 @@ export function SceneReview({
   activateNonce,
   episodeScenes,
   edits,
+  viewer,
 }: {
   sceneId: string;
   hasVideo: boolean;
@@ -97,6 +102,7 @@ export function SceneReview({
   activateNonce?: number;
   episodeScenes: EpisodeSceneRef[];
   edits: EditRecord[];
+  viewer: Viewer;
 }) {
   const [mode, setMode] = useState<"original" | "edit">("original");
   const router = useRouter();
@@ -513,6 +519,7 @@ export function SceneReview({
               <CommentCard
                 key={c.id}
                 comment={c}
+                viewer={viewer}
                 active={c.id === activeId}
                 onSelect={() => selectComment(c)}
                 onChanged={() => router.refresh()}
@@ -527,15 +534,18 @@ export function SceneReview({
 
 function CommentCard({
   comment,
+  viewer,
   active,
   onSelect,
   onChanged,
 }: {
   comment: SceneComment;
+  viewer: Viewer;
   active: boolean;
   onSelect: () => void;
   onChanged: () => void;
 }) {
+  const canDelete = viewer.isAdmin || comment.authorId === viewer.id;
   const [replyOpen, setReplyOpen] = useState(false);
   const [reply, setReply] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -693,15 +703,17 @@ function CommentCard({
               <span suppressHydrationWarning className="text-[11px] text-ink-faint">
                 {formatWhen(r.createdAt)}
               </span>
-              <button
-                type="button"
-                onClick={() => deleteReply(r.id)}
-                disabled={isPending}
-                data-testid="delete-reply"
-                className="ml-2 text-[11px] font-medium text-red-500 opacity-0 hover:underline group-hover:opacity-100"
-              >
-                delete
-              </button>
+              {viewer.isAdmin || r.authorId === viewer.id ? (
+                <button
+                  type="button"
+                  onClick={() => deleteReply(r.id)}
+                  disabled={isPending}
+                  data-testid="delete-reply"
+                  className="ml-2 text-[11px] font-medium text-red-500 opacity-0 hover:underline group-hover:opacity-100"
+                >
+                  delete
+                </button>
+              ) : null}
               <p className="whitespace-pre-wrap text-ink-soft">{r.body}</p>
             </li>
           ))}
@@ -737,15 +749,17 @@ function CommentCard({
         >
           {genPending ? "Generating…" : prompt ? "↻ Regenerate prompt" : "✨ Make prompt"}
         </button>
-        <button
-          type="button"
-          onClick={deleteThis}
-          disabled={isPending}
-          data-testid="delete-comment"
-          className="ml-auto font-medium text-red-500 hover:underline"
-        >
-          Delete
-        </button>
+        {canDelete ? (
+          <button
+            type="button"
+            onClick={deleteThis}
+            disabled={isPending}
+            data-testid="delete-comment"
+            className="ml-auto font-medium text-red-500 hover:underline"
+          >
+            Delete
+          </button>
+        ) : null}
       </div>
 
       {replyOpen ? (

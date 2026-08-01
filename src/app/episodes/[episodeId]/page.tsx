@@ -7,6 +7,7 @@ import { Header } from "@/components/Header";
 import { EpisodeView, type SceneData } from "./EpisodeView";
 import { DeleteEpisodeButton } from "./DeleteEpisodeButton";
 import type { DiscussionPost } from "./EpisodeDiscussion";
+import { ActivityFeed, buildActivity } from "./ActivityFeed";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +36,15 @@ export default async function EpisodePage({
       scenes: {
         orderBy: { order: "asc" },
         include: {
+          createdBy: { select: { name: true } },
           edits: {
-            select: { id: true, name: true, data: true },
+            select: {
+              id: true,
+              name: true,
+              data: true,
+              createdAt: true,
+              createdBy: { select: { name: true } },
+            },
             orderBy: { createdAt: "asc" },
           },
           comments: {
@@ -64,6 +72,7 @@ export default async function EpisodePage({
       body: c.body,
       timecodeMs: c.timecodeMs,
       resolved: c.resolved,
+      authorId: c.authorId,
       authorName: c.author.name,
       createdAt: c.createdAt.toISOString(),
       hasFrame: Boolean(c.frameImage),
@@ -72,6 +81,7 @@ export default async function EpisodePage({
       replies: c.replies.map((r) => ({
         id: r.id,
         body: r.body,
+        authorId: r.authorId,
         authorName: r.author.name,
         createdAt: r.createdAt.toISOString(),
       })),
@@ -79,6 +89,7 @@ export default async function EpisodePage({
     return {
       id: s.id,
       title: s.title,
+      createdById: s.createdById,
       hasVideo: Boolean(s.videoFile),
       videoSrc: s.videoFile
         ? cloud
@@ -147,6 +158,20 @@ export default async function EpisodePage({
     .map(serializePost)
     .sort((a, b) => b.score - a.score || (a.createdAt < b.createdAt ? 1 : -1));
 
+  // flatten posts + replies for the activity feed
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const flatPosts: { id: string; createdAt: Date; author: { name: string } }[] = [];
+  const walkPosts = (list: any[]) => {
+    for (const p of list) {
+      flatPosts.push({ id: p.id, createdAt: p.createdAt, author: p.author });
+      if (p.replies?.length) walkPosts(p.replies);
+    }
+  };
+  walkPosts(rawPosts);
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
+  const activity = buildActivity({ scenes: episode.scenes, posts: flatPosts });
+
   return (
     <div className="flex min-h-screen flex-col">
       <Header user={user} />
@@ -166,19 +191,24 @@ export default async function EpisodePage({
               <p className="text-sm text-ink-soft">{episode.description}</p>
             ) : null}
           </div>
-          <DeleteEpisodeButton
-            episodeId={episode.id}
-            projectId={episode.project.id}
-            title={episode.title}
-          />
+          {user.role === "admin" || episode.createdById === user.id ? (
+            <DeleteEpisodeButton
+              episodeId={episode.id}
+              projectId={episode.project.id}
+              title={episode.title}
+            />
+          ) : null}
         </div>
       </div>
+
+      <ActivityFeed events={activity} />
 
       <EpisodeView
         episodeId={episode.id}
         cloud={cloud}
         scenes={scenes}
         posts={posts}
+        viewer={{ id: user.id, isAdmin: user.role === "admin" }}
       />
     </div>
   );

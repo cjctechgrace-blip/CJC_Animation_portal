@@ -17,16 +17,36 @@ model User {
   name         String
   passwordHash String
   role         String   @default("member") // "admin" | "member"
+  active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
-  sessions  Session[]
-  projects  Project[]
-  episodes  Episode[]
-  scenes    Scene[]
-  comments  Comment[]
-  posts     Post[]
-  postVotes PostVote[]
-  edits     Edit[]
+  sessions       Session[]
+  projects       Project[]
+  episodes       Episode[]
+  scenes         Scene[]
+  comments       Comment[]
+  posts          Post[]
+  postVotes      PostVote[]
+  edits          Edit[]
+  invitesCreated Invite[]
+}
+
+// One-time links: invite a new teammate (they pick their own password) or let
+// an existing member reset theirs. Tokens are single-use and expire.
+model Invite {
+  id          String    @id @default(cuid())
+  email       String
+  name        String    @default("")
+  role        String    @default("member") // "admin" | "member"
+  kind        String    @default("invite") // "invite" | "reset"
+  token       String    @unique
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([email])
 }
 
 model Session {

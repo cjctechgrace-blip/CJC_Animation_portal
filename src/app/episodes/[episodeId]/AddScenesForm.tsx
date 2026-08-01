@@ -29,16 +29,18 @@ export function AddScenesForm({
     setError(null);
     setBusy(true);
     try {
-      const scenes = await uploadScenesToStorage(files, (s) => {
-        setStatus(
-          s.phase === "compress"
-            ? `Compressing clip ${s.index + 1} of ${s.total}${
-                s.note ? ` — ${s.note}` : "…"
-              }`
-            : `Uploading clip ${s.index + 1} of ${s.total}…`
-        );
-        setPct(s.pct);
-      });
+      const scenes = await uploadScenesToStorage(
+        files,
+        (s) => {
+          const base =
+            s.phase === "compress"
+              ? `Compressing clip ${s.index + 1} of ${s.total}…`
+              : `Uploading clip ${s.index + 1} of ${s.total}…`;
+          setStatus(s.note ? `${base} ${s.note}` : base);
+          setPct(s.pct);
+        },
+        cloud
+      );
       setStatus("Saving…");
       const res = await addScenesAction({ episodeId, scenes });
       if (!res.ok) throw new Error(res.error || "Could not add scenes.");
@@ -69,17 +71,8 @@ export function AddScenesForm({
     );
   }
 
-  const formProps = cloud
-    ? { onSubmit: handleSubmit }
-    : {
-        action: `/api/episodes/${episodeId}/scenes`,
-        method: "post",
-        encType: "multipart/form-data",
-        onSubmit: () => setBusy(true),
-      };
-
   return (
-    <form {...formProps} className="card w-full p-4">
+    <form onSubmit={handleSubmit} className="card w-full p-4">
       <h3 className="mb-2 text-sm font-semibold">Add scene clips</h3>
       <input
         name="video"

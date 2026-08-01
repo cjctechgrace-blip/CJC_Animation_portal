@@ -28,20 +28,20 @@ async function setupEpisodeWithVideo(page: Page): Promise<void> {
 
   await page.waitForFunction(() => {
     const v = document.querySelector(
-      '[data-testid="episode-video"]'
+      '[data-testid="scene-video"]'
     ) as HTMLVideoElement | null;
     return !!v && v.readyState >= 2 && v.duration > 0;
   });
   await page.evaluate(() => {
     const v = document.querySelector(
-      '[data-testid="episode-video"]'
+      '[data-testid="scene-video"]'
     ) as HTMLVideoElement;
     v.currentTime = 2;
     v.pause();
   });
   await page.waitForFunction(() => {
     const v = document.querySelector(
-      '[data-testid="episode-video"]'
+      '[data-testid="scene-video"]'
     ) as HTMLVideoElement;
     return v.readyState >= 2 && Math.abs(v.currentTime - 2) < 0.5;
   });
@@ -60,6 +60,22 @@ test.describe("Auth (invite-only)", () => {
     await page.click('button[type="submit"]');
     await expect(page.getByText(/don't match/i)).toBeVisible();
     await expect(page).toHaveURL(/\/login/);
+  });
+
+  test("repeated failed logins are throttled", async ({ page }) => {
+    const email = `bruteforce-${Date.now()}@cjc.test`;
+    for (let i = 0; i < 8; i++) {
+      await page.goto("/login");
+      await page.fill("#email", email);
+      await page.fill("#password", "wrongpass");
+      await page.click('button[type="submit"]');
+      await expect(page.getByText(/don't match/i)).toBeVisible();
+    }
+    await page.goto("/login");
+    await page.fill("#email", email);
+    await page.fill("#password", "wrongpass");
+    await page.click('button[type="submit"]');
+    await expect(page.getByText(/too many failed attempts/i)).toBeVisible();
   });
 
   test("valid login then logout", async ({ page }) => {
@@ -98,11 +114,13 @@ test.describe("Full review workflow", () => {
     await page.click('button:has-text("Create episode")');
 
     await expect(page).toHaveURL(/\/episodes\//);
-    const episodeUrl = page.url();
-    const episodeId = episodeUrl.split("/episodes/")[1];
 
-    // --- the video streams with Range support (206) ---
-    const rangeRes = await page.request.get(`/api/video/${episodeId}`, {
+    // --- the scene video streams with Range support (206) ---
+    const video0 = page.getByTestId("scene-video");
+    await expect(video0).toBeVisible();
+    const videoSrc = await video0.getAttribute("src");
+    expect(videoSrc).toContain("/api/video/");
+    const rangeRes = await page.request.get(videoSrc as string, {
       headers: { Range: "bytes=0-1023" },
     });
     expect(rangeRes.status()).toBe(206);
@@ -110,11 +128,11 @@ test.describe("Full review workflow", () => {
     expect(rangeRes.headers()["accept-ranges"]).toBe("bytes");
 
     // --- video element loads real metadata (duration known) ---
-    const video = page.getByTestId("episode-video");
+    const video = page.getByTestId("scene-video");
     await expect(video).toBeVisible();
     await page.waitForFunction(() => {
       const v = document.querySelector(
-        '[data-testid="episode-video"]'
+        '[data-testid="scene-video"]'
       ) as HTMLVideoElement | null;
       return !!v && v.readyState >= 1 && v.duration > 0;
     });
@@ -122,21 +140,21 @@ test.describe("Full review workflow", () => {
     // --- seek to a known point, then pin a note there ---
     await page.evaluate(() => {
       const v = document.querySelector(
-        '[data-testid="episode-video"]'
+        '[data-testid="scene-video"]'
       ) as HTMLVideoElement;
       v.currentTime = 2;
       v.pause();
     });
     await page.waitForFunction(() => {
       const v = document.querySelector(
-        '[data-testid="episode-video"]'
+        '[data-testid="scene-video"]'
       ) as HTMLVideoElement;
       return Math.abs(v.currentTime - 2) < 0.4;
     });
 
     const pinnedSeconds = await page.evaluate(() => {
       const v = document.querySelector(
-        '[data-testid="episode-video"]'
+        '[data-testid="scene-video"]'
       ) as HTMLVideoElement;
       return v.currentTime;
     });
@@ -156,7 +174,7 @@ test.describe("Full review workflow", () => {
     // --- clicking the timecode seeks the player back to that moment ---
     await page.evaluate(() => {
       const v = document.querySelector(
-        '[data-testid="episode-video"]'
+        '[data-testid="scene-video"]'
       ) as HTMLVideoElement;
       v.currentTime = 0;
     });
@@ -164,7 +182,7 @@ test.describe("Full review workflow", () => {
     await page.waitForFunction(
       (target) => {
         const v = document.querySelector(
-          '[data-testid="episode-video"]'
+          '[data-testid="scene-video"]'
         ) as HTMLVideoElement;
         return Math.abs(v.currentTime - target) < 0.4;
       },
@@ -193,24 +211,21 @@ test.describe("Phase 2 — draw on frame + Higgsfield prompt", () => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await setupEpisodeWithVideo(page);
 
-    // --- capture the current frame to draw on ---
-    await page.getByTestId("capture-frame").click();
-    const annotator = page.getByTestId("frame-annotator");
-    await expect(annotator).toBeVisible();
-
-    // --- draw a stroke on the frame canvas ---
-    const canvas = page.getByTestId("frame-canvas");
-    const box = await canvas.boundingBox();
-    if (!box) throw new Error("canvas has no bounding box");
+    // --- mark a region on the paused frame ---
+    await page.getByTestId("mark-toggle").click();
+    await expect(page.getByText(/Drag a region/)).toBeVisible();
+    const overlay = page.getByTestId("video-overlay");
+    // the player can extend below the viewport; mouse events outside it are dropped
+    await overlay.scrollIntoViewIfNeeded();
+    const box = await overlay.boundingBox();
+    if (!box) throw new Error("overlay has no bounding box");
     await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.4);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6);
-    await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.3);
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6, {
+      steps: 8,
+    });
     await page.mouse.up();
-
-    // --- attach the annotated frame to the note ---
-    await page.getByTestId("frame-attach").click();
-    await expect(page.getByTestId("frame-attached")).toBeVisible();
+    await expect(page.getByTestId("mark-attached")).toBeVisible();
 
     // --- write and pin the note ---
     await page

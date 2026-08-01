@@ -1,6 +1,25 @@
 # CJC Animation Portal — Handoff Document
 
-_Last updated: 2026-07-08_
+_Last updated: 2026-08-01_
+
+> **2026-08-01 update (Phases 0–4, built & e2e-tested locally, NOT yet deployed):**
+> - **In-browser video compression** (WebCodecs + mediabunny): big clips shrink
+>   ~5–10× before upload, with progress, retries, and pre-flight size checks.
+>   Verified: a 31 MB clip stored as 10 MB.
+> - **Team page** (`/team`, admin-only): invite links (invitees set their own
+>   password), password-reset links, role changes, deactivate/reactivate.
+> - **Role enforcement**: deleting projects/episodes/scenes/notes/edits now
+>   requires admin or ownership — in the UI and in every server action.
+> - **Activity feed** on each episode: who added/noted/edited what, when.
+> - **Login rate-limiting** (8 failures / 15 min per email).
+> - **Faster live updates**: 5 s focus-aware polling + refresh on tab focus.
+> - E2E suite repaired (was stale) and extended: **11 passing** + 1 optional
+>   compression test.
+>
+> **⚠️ Before deploying this code to Vercel you MUST run
+> `prisma/migration_team_accounts.sql` against the production Supabase database**
+> (SQL editor → paste → run; it's additive and safe on live data). Deploying
+> without it will break sign-in (the app expects `User.active` + `Invite`).
 
 A team video-review & collaboration portal for AI-animated episodes — the
 Frame.io pattern (log in, watch, pin feedback to an exact moment) tailored for a
@@ -182,15 +201,18 @@ Database schema changes are applied **additively** to Supabase (new tables /
 ## 10. Suggested next steps
 
 1. **Rotate the exposed secrets** (DB password + service_role key). _(do first)_
-2. Point a **custom domain** at the Vercel project.
-3. **Connect the GitHub repo to Vercel** for automatic deploys on push.
-4. Decide on **large-video hosting** (Mux or Supabase Pro) if episodes exceed 50 MB.
-5. Add an **"invite/add member" admin UI** + password reset (today, users are
-   added by seeding/inserting a DB row).
-6. Add `ANTHROPIC_API_KEY` in Vercel to switch prompts to the live Claude model.
-7. Optionally: rendered exports, true realtime, and role-based permissions on
-   destructive actions.
-8. Refresh the `README.md` (it predates most of these features).
+2. **Run `prisma/migration_team_accounts.sql` on Supabase, then deploy** the
+   Phase 0–4 build (see the update note at the top).
+3. **Change the admin password** — the old seed committed one to this public
+   repo (`CJCportal2026!`). If production still uses it, reset it (the new Team
+   page can generate a reset link).
+4. **Connect the GitHub repo to Vercel** for automatic deploys on push.
+5. Point a **custom domain** at the Vercel project.
+6. **Bunny Stream** for large-video hosting (Phase 2 of PLAN.md) — removes the
+   50 MB cap for ~$1–2/mo; compression already reduces most clips below it.
+7. Add `ANTHROPIC_API_KEY` in Vercel to switch prompts to the live Claude model.
+8. Optionally: rendered exports, true realtime (Supabase Realtime), email
+   notifications (Resend).
 
 ---
 
