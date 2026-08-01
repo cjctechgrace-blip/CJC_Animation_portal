@@ -82,10 +82,16 @@ model Episode {
   createdBy   User     @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
 
+  // publishing pipeline (Kanban board): review → approved → scheduled → published
+  status         String    @default("review")
+  publishAt      DateTime?
+  youtubeVideoId String?
+
   scenes Scene[]
   posts  Post[]
 
   @@index([projectId])
+  @@index([status])
 }
 
 // A scene is one short clip (often a single AI generation). Episodes are made of

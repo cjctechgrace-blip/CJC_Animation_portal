@@ -48,8 +48,18 @@ export function publicUrl(key: string): string {
 
 /** Delete stored objects (video/frame files) to free space. Best effort. */
 export async function deleteObjects(keys: (string | null | undefined)[]): Promise<void> {
-  const valid = keys.filter((k): k is string => Boolean(k));
+  let valid = keys.filter((k): k is string => Boolean(k));
   if (!valid.length) return;
+
+  // Bunny Stream keys ("bunny:<videoId>") are deleted via the Bunny API.
+  const bunnyKeys = valid.filter((k) => k.startsWith("bunny:"));
+  if (bunnyKeys.length) {
+    const { deleteBunnyVideos } = await import("./bunny");
+    await deleteBunnyVideos(bunnyKeys);
+    valid = valid.filter((k) => !k.startsWith("bunny:"));
+    if (!valid.length) return;
+  }
+
   if (isCloudStorage()) {
     await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}`, {
       method: "DELETE",

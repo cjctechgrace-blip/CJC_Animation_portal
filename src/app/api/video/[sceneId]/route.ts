@@ -24,6 +24,14 @@ export async function GET(
     return new Response("No video", { status: 404 });
   }
 
+  // Bunny Stream: redirect to the CDN rendition once encoding is done.
+  if (scene.videoFile.startsWith("bunny:")) {
+    const { getBunnyVideoState, bunnyVideoIdFromKey } = await import("@/lib/bunny");
+    const state = await getBunnyVideoState(bunnyVideoIdFromKey(scene.videoFile));
+    if (state.ready && state.mp4Url) return Response.redirect(state.mp4Url, 307);
+    return new Response("Video is still processing", { status: 503 });
+  }
+
   // Cloud: hand off to Supabase Storage's public URL (it supports Range/seeking).
   if (isCloudStorage()) {
     return Response.redirect(publicUrl(scene.videoFile), 307);

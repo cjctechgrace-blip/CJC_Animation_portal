@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { reorderScenesAction, deleteSceneAction } from "@/lib/actions";
 import { SceneReview, type SceneComment, type Viewer } from "./SceneReview";
+import type { UploadMode } from "@/lib/uploadScenes";
 import { AddScenesForm } from "./AddScenesForm";
 import {
   EpisodeDiscussion,
@@ -24,13 +25,13 @@ export type SceneData = {
 
 export function EpisodeView({
   episodeId,
-  cloud,
+  uploadMode,
   scenes,
   posts,
   viewer,
 }: {
   episodeId: string;
-  cloud: boolean;
+  uploadMode: UploadMode;
   scenes: SceneData[];
   posts: DiscussionPost[];
   viewer: Viewer;
@@ -223,7 +224,7 @@ export function EpisodeView({
       </div>
 
       <div className="mb-5">
-        <AddScenesForm episodeId={episodeId} cloud={cloud} />
+        <AddScenesForm episodeId={episodeId} uploadMode={uploadMode} />
       </div>
 
       <div ref={reviewRef} className="scroll-mt-4">

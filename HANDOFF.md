@@ -16,10 +16,25 @@ _Last updated: 2026-08-01_
 > - E2E suite repaired (was stale) and extended: **11 passing** + 1 optional
 >   compression test.
 >
-> **⚠️ Before deploying this code to Vercel you MUST run
-> `prisma/migration_team_accounts.sql` against the production Supabase database**
-> (SQL editor → paste → run; it's additive and safe on live data). Deploying
-> without it will break sign-in (the app expects `User.active` + `Invite`).
+> **2026-08-01 update 2 (Phase 2 + publishing pipeline):**
+> - **Bunny Stream video backend** (library 718455, created): browser uploads go
+>   straight to Bunny via signed TUS — no 50 MB cap — and stream from its CDN
+>   with a "processing" state while clips encode. Existing Supabase clips keep
+>   working side by side. Env vars to activate: see `SETUP-YOUTUBE.md`.
+> - **Publishing board** (`/board`): Kanban — In review → Approved → Scheduled
+>   → Published, with publish dates and an upcoming-releases list.
+> - **Three roles**: admin (manages team) / **video editor** (sees the board +
+>   schedule) / **reviewer** (reviews only — never sees scheduling). Legacy
+>   "member" rows act as reviewers; promote editors on `/team`.
+> - **YouTube scheduling** for the children's channel: single-clip episodes
+>   upload private + made-for-kids and go public at the scheduled time. Needs
+>   the OAuth env vars — full walkthrough in `SETUP-YOUTUBE.md`.
+>
+> **⚠️ Before deploying this code to Vercel you MUST run BOTH
+> `prisma/migration_team_accounts.sql` AND `prisma/migration_publishing.sql`
+> against the production Supabase database** (SQL editor → paste → run; both
+> are additive and safe on live data). The first is already applied
+> (2026-08-01). Deploying without them breaks sign-in / the board.
 
 A team video-review & collaboration portal for AI-animated episodes — the
 Frame.io pattern (log in, watch, pin feedback to an exact moment) tailored for a

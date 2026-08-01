@@ -19,6 +19,7 @@ import {
   destroySession,
   getCurrentUser,
   requireAdmin,
+  requireEditor,
   requireUser,
   verifyCredentials,
   type SessionUser,
@@ -161,6 +162,30 @@ export async function createSignedUploadAction(input: {
       `${randomUUID()}.${ext}`
     );
     return { ok: true, uploadUrl, key };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not start upload." };
+  }
+}
+
+/** Create a Bunny Stream video + signed TUS ticket for a direct browser upload. */
+export async function createBunnyUploadAction(input: {
+  filename: string;
+}): Promise<{
+  ok: boolean;
+  videoId?: string;
+  libraryId?: string;
+  signature?: string;
+  expiration?: number;
+  error?: string;
+}> {
+  await requireUser();
+  const { isBunnyStorage, createBunnyUpload } = await import("./bunny");
+  if (!isBunnyStorage()) {
+    return { ok: false, error: "Bunny Stream is not configured." };
+  }
+  try {
+    const ticket = await createBunnyUpload(input.filename);
+    return { ok: true, ...ticket };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not start upload." };
   }
@@ -675,7 +700,9 @@ export async function createInviteAction(input: {
   const admin = await requireAdmin();
   const email = input.email.trim().toLowerCase();
   const kind = input.kind === "reset" ? "reset" : "invite";
-  const role = input.role === "admin" ? "admin" : "member";
+  const role = ["admin", "editor", "reviewer"].includes(input.role ?? "")
+    ? (input.role as string)
+    : "reviewer";
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { ok: false, error: "Enter a valid email address." };
@@ -797,7 +824,9 @@ export async function setUserRoleAction(input: {
   role: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const admin = await requireAdmin();
-  const role = input.role === "admin" ? "admin" : "member";
+  const role = ["admin", "editor", "reviewer"].includes(input.role)
+    ? input.role
+    : "reviewer";
 
   if (input.userId === admin.id && role !== "admin") {
     const otherAdmins = await db.user.count({
@@ -811,4 +840,121 @@ export async function setUserRoleAction(input: {
   await db.user.update({ where: { id: input.userId }, data: { role } });
   revalidatePath("/team");
   return { ok: true };
+}
+
+/* --------------------------- publishing board --------------------------- */
+// Kanban pipeline: review → approved → scheduled → published.
+// Board + these actions are for admins and video editors only — reviewers
+// never see scheduling.
+
+/** Editor/admin: approve an episode, or send it back to review. */
+export async function setEpisodeStatusAction(input: {
+  episodeId: string;
+  status: "review" | "approved";
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireEditor();
+  const episode = await db.episode.findUnique({
+    where: { id: input.episodeId },
+    select: { id: true, status: true, youtubeVideoId: true },
+  });
+  if (!episode) return { ok: false, error: "Episode not found." };
+  if (episode.status === "scheduled" && episode.youtubeVideoId) {
+    return {
+      ok: false,
+      error:
+        "This episode is already queued on YouTube — manage it in YouTube Studio first.",
+    };
+  }
+
+  await db.episode.update({
+    where: { id: episode.id },
+    data: { status: input.status, publishAt: null },
+  });
+  revalidatePath("/board");
+  return { ok: true };
+}
+
+/** Editor/admin: schedule an approved episode for publishing. If YouTube is
+ * connected and the episode has exactly one clip, it uploads now (private,
+ * made-for-kids) and YouTube flips it public at the scheduled time. */
+export async function scheduleEpisodeAction(input: {
+  episodeId: string;
+  publishAtISO: string;
+}): Promise<{ ok: boolean; youtube?: boolean; error?: string }> {
+  await requireEditor();
+
+  const publishAt = new Date(input.publishAtISO);
+  if (Number.isNaN(publishAt.getTime())) {
+    return { ok: false, error: "Pick a valid date and time." };
+  }
+  if (publishAt.getTime() < Date.now() + 5 * 60 * 1000) {
+    return { ok: false, error: "Pick a time at least 5 minutes from now." };
+  }
+
+  const episode = await db.episode.findUnique({
+    where: { id: input.episodeId },
+    include: {
+      project: { select: { name: true } },
+      scenes: {
+        where: { videoFile: { not: null } },
+        orderBy: { order: "asc" },
+        select: { id: true, videoFile: true },
+      },
+    },
+  });
+  if (!episode) return { ok: false, error: "Episode not found." };
+  if (episode.status !== "approved" && episode.status !== "scheduled") {
+    return { ok: false, error: "Approve the episode before scheduling it." };
+  }
+
+  // Try YouTube when it's configured, not already uploaded, and the episode is
+  // a single finished clip (multi-scene episodes need a final cut first).
+  let youtubeVideoId = episode.youtubeVideoId;
+  let uploadedNow = false;
+  if (!youtubeVideoId) {
+    const { isYouTubeConfigured, scheduleYouTubeUpload } = await import("./youtube");
+    if (isYouTubeConfigured() && episode.scenes.length === 1) {
+      const key = episode.scenes[0].videoFile as string;
+      let sourceUrl: string | null = null;
+      if (key.startsWith("bunny:")) {
+        const { getBunnyVideoState, bunnyVideoIdFromKey } = await import("./bunny");
+        const state = await getBunnyVideoState(bunnyVideoIdFromKey(key));
+        sourceUrl = state.mp4Url; // null while still encoding
+      } else if (isCloudStorage()) {
+        const { publicUrl } = await import("./storage");
+        sourceUrl = publicUrl(key);
+      }
+      if (sourceUrl) {
+        try {
+          youtubeVideoId = await scheduleYouTubeUpload({
+            title: episode.title,
+            description: `${episode.project.name} — ${episode.description || episode.title}`,
+            sourceUrl,
+            publishAt,
+          });
+          uploadedNow = true;
+        } catch (e) {
+          return {
+            ok: false,
+            error: e instanceof Error ? e.message : "YouTube upload failed.",
+          };
+        }
+      }
+    }
+  }
+
+  await db.episode.update({
+    where: { id: episode.id },
+    data: { status: "scheduled", publishAt, youtubeVideoId },
+  });
+  revalidatePath("/board");
+  return { ok: true, youtube: uploadedNow || Boolean(youtubeVideoId) };
+}
+
+/** Mark past-due scheduled episodes as published (called on board load). */
+export async function sweepPublishedEpisodes(): Promise<void> {
+  await db.episode.updateMany({
+    where: { status: "scheduled", publishAt: { lte: new Date() } },
+    data: { status: "published" },
+  });
 }

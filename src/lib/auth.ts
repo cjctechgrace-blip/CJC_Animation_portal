@@ -86,3 +86,19 @@ export async function requireAdmin(): Promise<SessionUser> {
   if (user.role !== "admin") redirect("/dashboard");
   return user;
 }
+
+/**
+ * Roles: "admin" (manages team) > "editor" (sees the publishing board,
+ * schedules releases) > "reviewer" (reviews and comments only). Legacy
+ * "member" rows are treated as reviewers.
+ */
+export function isEditorRole(role: string): boolean {
+  return role === "admin" || role === "editor";
+}
+
+/** Guard for pages/actions reserved for admins + video editors. */
+export async function requireEditor(): Promise<SessionUser> {
+  const user = await requireUser();
+  if (!isEditorRole(user.role)) redirect("/dashboard");
+  return user;
+}

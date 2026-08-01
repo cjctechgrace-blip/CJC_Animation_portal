@@ -1,5 +1,8 @@
-import { createSignedUploadAction } from "@/lib/actions";
+import { createBunnyUploadAction, createSignedUploadAction } from "@/lib/actions";
 import { compressVideo } from "@/lib/compressVideo";
+import * as tus from "tus-js-client";
+
+export type UploadMode = "bunny" | "supabase" | "local";
 
 export type SceneUpload = { title: string; videoKey: string; mimeType: string };
 
@@ -65,15 +68,42 @@ async function sendWithRetry(
   throw lastError;
 }
 
+/** Resumable TUS upload straight to Bunny Stream (the API key stays server-side). */
+function tusUploadToBunny(
+  file: File,
+  mimeType: string,
+  ticket: { videoId: string; libraryId: string; signature: string; expiration: number },
+  onPct: (n: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const upload = new tus.Upload(file, {
+      endpoint: "https://video.bunnycdn.com/tusupload",
+      retryDelays: [0, 2000, 5000, 10000],
+      headers: {
+        AuthorizationSignature: ticket.signature,
+        AuthorizationExpire: String(ticket.expiration),
+        VideoId: ticket.videoId,
+        LibraryId: ticket.libraryId,
+      },
+      metadata: { filetype: mimeType, title: file.name },
+      onProgress: (sent, totalBytes) =>
+        onPct(totalBytes ? Math.round((sent / totalBytes) * 100) : 0),
+      onSuccess: () => resolve(),
+      onError: (err) => reject(new Error(`Upload failed — ${err.message}`)),
+    });
+    upload.start();
+  });
+}
+
 /**
- * Compress (in-browser, WebCodecs) then upload each clip. Cloud → direct PUT to
- * Supabase Storage via signed URL; local dev → POST to /api/upload. Reports
- * per-clip progress for both phases.
+ * Compress (in-browser, WebCodecs) then upload each clip.
+ * bunny → TUS to Bunny Stream; supabase → signed PUT; local → POST /api/upload.
+ * Reports per-clip progress for both phases.
  */
 export async function uploadScenesToStorage(
   files: File[],
   onProgress: (status: UploadStatus) => void,
-  cloud: boolean = true
+  mode: UploadMode = "supabase"
 ): Promise<SceneUpload[]> {
   const results: SceneUpload[] = [];
   const total = files.length;
@@ -99,8 +129,9 @@ export async function uploadScenesToStorage(
       });
     }
 
-    // --- pre-flight: reject before wasting an upload ---
-    if (cloud && file.size > CLOUD_LIMIT) {
+    // --- pre-flight: reject before wasting an upload (Supabase free tier only;
+    // Bunny Stream has no per-file cap) ---
+    if (mode === "supabase" && file.size > CLOUD_LIMIT) {
       throw new Error(
         `"${original.name}" is still ${(file.size / MB).toFixed(0)} MB after ` +
           `compression — over the 50 MB storage limit. Split it into shorter ` +
@@ -114,7 +145,25 @@ export async function uploadScenesToStorage(
     const mimeType = file.type || "video/mp4";
     let key: string;
 
-    if (cloud) {
+    if (mode === "bunny") {
+      const ticket = await createBunnyUploadAction({ filename: file.name });
+      if (!ticket.ok || !ticket.videoId || !ticket.signature) {
+        throw new Error(ticket.error || "Could not start upload.");
+      }
+      // tus-js-client retries internally (retryDelays), so no outer retry
+      await tusUploadToBunny(
+        file,
+        mimeType,
+        {
+          videoId: ticket.videoId,
+          libraryId: ticket.libraryId as string,
+          signature: ticket.signature,
+          expiration: ticket.expiration as number,
+        },
+        (pct) => onProgress({ index: i, total, pct, phase: "upload" })
+      );
+      key = `bunny:${ticket.videoId}`;
+    } else if (mode === "supabase") {
       const up = await createSignedUploadAction({
         filename: file.name,
         contentType: mimeType,

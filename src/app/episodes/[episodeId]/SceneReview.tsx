@@ -357,6 +357,19 @@ export function SceneReview({
                 setCurrentMs(Math.round(e.currentTarget.currentTime * 1000))
               }
             />
+          ) : hasVideo ? (
+            <div
+              className="grid aspect-video w-full place-items-center bg-ink text-center text-sm text-white/70"
+              data-testid="video-processing"
+            >
+              <div>
+                <p className="text-base">⏳ Processing video…</p>
+                <p className="mt-1 text-xs text-white/50">
+                  Bunny is preparing this clip for streaming. It appears here
+                  automatically — usually under a minute.
+                </p>
+              </div>
+            </div>
           ) : (
             <div className="grid aspect-video w-full place-items-center bg-ink text-center text-sm text-white/70">
               No clip uploaded for this scene yet.

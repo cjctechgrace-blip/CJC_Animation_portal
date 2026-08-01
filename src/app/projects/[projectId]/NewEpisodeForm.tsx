@@ -3,14 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createEpisodeWithScenesAction } from "@/lib/actions";
-import { uploadScenesToStorage } from "@/lib/uploadScenes";
+import { uploadScenesToStorage, type UploadMode } from "@/lib/uploadScenes";
 
 export function NewEpisodeForm({
   projectId,
-  cloud,
+  uploadMode,
 }: {
   projectId: string;
-  cloud: boolean;
+  uploadMode: UploadMode;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -43,7 +43,7 @@ export function NewEpisodeForm({
             setStatus(s.note ? `${base} ${s.note}` : base);
             setPct(s.pct);
           },
-          cloud
+          uploadMode
         );
       }
       setStatus("Creating episode…");
