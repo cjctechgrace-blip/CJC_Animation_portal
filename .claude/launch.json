@@ -4,14 +4,14 @@
     {
       "name": "cjc-portal-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 3000
+      "runtimeArgs": ["run", "dev", "--", "-p", "3100"],
+      "port": 3100
     },
     {
       "name": "cjc-portal-prod",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start"],
-      "port": 3000
+      "runtimeArgs": ["run", "start", "--", "-p", "3100"],
+      "port": 3100
     }
   ]
 }
