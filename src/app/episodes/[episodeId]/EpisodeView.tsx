@@ -178,7 +178,7 @@ export function EpisodeView({
                     : "border-line bg-panel hover:bg-paper"
                 } ${isOver ? "ring-2 ring-accent" : ""}`}
               >
-                {viewer.isAdmin || s.createdById === viewer.id ? (
+                {viewer.isAdmin || viewer.isEditor || s.createdById === viewer.id ? (
                   <button
                     type="button"
                     onClick={(e) => {

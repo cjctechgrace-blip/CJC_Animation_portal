@@ -16,6 +16,7 @@ import { EpisodeView, type SceneData } from "./EpisodeView";
 import { DeleteEpisodeButton } from "./DeleteEpisodeButton";
 import type { DiscussionPost } from "./EpisodeDiscussion";
 import { ActivityFeed, buildActivity } from "./ActivityFeed";
+import { ApprovalBar } from "./ApprovalBar";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,11 @@ export default async function EpisodePage({
     where: { id: params.episodeId },
     include: {
       project: { select: { id: true, name: true } },
+      approvals: {
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true } } },
+      },
+      _count: { select: { visits: true } },
       scenes: {
         orderBy: { order: "asc" },
         include: {
@@ -72,6 +78,15 @@ export default async function EpisodePage({
   });
 
   if (!episode) notFound();
+
+  // record that this user opened the episode (feeds the "N viewed" count)
+  await db.episodeVisit.upsert({
+    where: {
+      episodeId_userId: { episodeId: episode.id, userId: user.id },
+    },
+    create: { episodeId: episode.id, userId: user.id },
+    update: { lastAt: new Date() },
+  });
 
   const cloud = isCloudStorage();
   const uploadMode: UploadMode = isBunnyStorage()
@@ -219,8 +234,22 @@ export default async function EpisodePage({
             {episode.description ? (
               <p className="text-sm text-ink-soft">{episode.description}</p>
             ) : null}
+            <div className="mt-2">
+              <ApprovalBar
+                episodeId={episode.id}
+                viewerApproved={episode.approvals.some((a) => a.user.id === user.id)}
+                approverNames={episode.approvals.map((a) => a.user.name)}
+                viewedCount={episode._count.visits}
+                feedbackCount={episode.scenes.reduce(
+                  (n, s) => n + s.comments.length,
+                  0
+                )}
+              />
+            </div>
           </div>
-          {user.role === "admin" || episode.createdById === user.id ? (
+          {user.role === "admin" ||
+          user.role === "editor" ||
+          episode.createdById === user.id ? (
             <DeleteEpisodeButton
               episodeId={episode.id}
               projectId={episode.project.id}
@@ -237,7 +266,11 @@ export default async function EpisodePage({
         uploadMode={uploadMode}
         scenes={scenes}
         posts={posts}
-        viewer={{ id: user.id, isAdmin: user.role === "admin" }}
+        viewer={{
+          id: user.id,
+          isAdmin: user.role === "admin",
+          isEditor: user.role === "editor",
+        }}
       />
     </div>
   );

@@ -25,16 +25,19 @@ export default async function LoginPage() {
           <LoginForm />
         </div>
 
-        <div className="mt-6 rounded-lg border border-dashed border-line bg-panel/60 p-4 text-xs text-ink-faint">
-          <p className="mb-1 font-semibold uppercase tracking-wide">
-            Demo accounts
-          </p>
-          <p>
-            admin@cjc.test · editor@cjc.test · reviewer@cjc.test
-            <br />
-            password: <span className="font-mono">password123</span>
-          </p>
-        </div>
+        {process.env.NODE_ENV !== "production" ? (
+          // local development only — never shown on the live site
+          <div className="mt-6 rounded-lg border border-dashed border-line bg-panel/60 p-4 text-xs text-ink-faint">
+            <p className="mb-1 font-semibold uppercase tracking-wide">
+              Demo accounts (local dev)
+            </p>
+            <p>
+              admin@cjc.test · editor@cjc.test · reviewer@cjc.test
+              <br />
+              password: <span className="font-mono">password123</span>
+            </p>
+          </div>
+        ) : null}
       </div>
     </main>
   );

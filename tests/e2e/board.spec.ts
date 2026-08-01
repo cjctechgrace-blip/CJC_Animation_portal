@@ -81,6 +81,38 @@ test.describe("Publishing board (Kanban)", () => {
     ).toHaveCount(1);
   });
 
+  test("reviewer approvals roll up: approve on episode, counts on board", async ({
+    page,
+  }) => {
+    // reviewer opens the episode and gives their sign-off
+    await login(page, "reviewer@cjc.test");
+    await page.goto("/dashboard");
+    await page.click('a:has-text("Genesis — Season 1")');
+    await page.click('a[href^="/episodes/"]');
+    await expect(page.getByTestId("approval-bar")).toBeVisible();
+    await page.getByTestId("approval-toggle").click();
+    await expect(page.getByTestId("approval-toggle")).toHaveText(/Approved by you/);
+    await expect(page.getByTestId("approval-stats")).toContainText("1 approved");
+    await expect(page.getByTestId("approval-stats")).toContainText("Ada");
+    await page.click('button:has-text("Sign out")');
+
+    // the board (editor view) shows viewed/approved/feedback counts
+    await login(page, "editor@cjc.test");
+    await page.goto("/board");
+    const stats = page
+      .locator('[data-testid="board-card"][data-episode="Ep 1 — The First Light"]')
+      .getByTestId("card-stats");
+    await expect(stats).toContainText("✓ 1 approved");
+    await expect(stats).toContainText("viewed");
+
+    // undo to leave the seed clean
+    await page.goto("/dashboard");
+    await page.click('a:has-text("Genesis — Season 1")');
+    await page.click('a[href^="/episodes/"]');
+    // editor hasn't approved; the reviewer's approval persists in stats
+    await expect(page.getByTestId("approval-stats")).toContainText("1 approved");
+  });
+
   test("scheduling rejects past dates", async ({ page }) => {
     await login(page, "admin@cjc.test");
     await page.goto("/board");

@@ -41,7 +41,9 @@ export default async function ProjectPage({
           >
             ← All projects
           </Link>
-          {user.role === "admin" || project.createdById === user.id ? (
+          {user.role === "admin" ||
+          user.role === "editor" ||
+          project.createdById === user.id ? (
             <DeleteProjectButton projectId={project.id} name={project.name} />
           ) : null}
         </div>

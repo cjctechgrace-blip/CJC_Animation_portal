@@ -24,7 +24,7 @@ type Reply = {
   createdAt: string;
 };
 
-export type Viewer = { id: string; isAdmin: boolean };
+export type Viewer = { id: string; isAdmin: boolean; isEditor: boolean };
 
 export type Mark = {
   type: "rect" | "point";
