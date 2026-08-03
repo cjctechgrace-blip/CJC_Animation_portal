@@ -88,7 +88,7 @@ test.describe("Publishing board (Kanban)", () => {
     await login(page, "reviewer@cjc.test");
     await page.goto("/dashboard");
     await page.click('a:has-text("Genesis — Season 1")');
-    await page.click('a[href^="/episodes/"]');
+    await page.click('a[href*="/episodes/"]:has-text("Ep 1")');
     await expect(page.getByTestId("approval-bar")).toBeVisible();
     await page.getByTestId("approval-toggle").click();
     await expect(page.getByTestId("approval-toggle")).toHaveText(/Approved by you/);
@@ -108,7 +108,7 @@ test.describe("Publishing board (Kanban)", () => {
     // undo to leave the seed clean
     await page.goto("/dashboard");
     await page.click('a:has-text("Genesis — Season 1")');
-    await page.click('a[href^="/episodes/"]');
+    await page.click('a[href*="/episodes/"]:has-text("Ep 1")');
     // editor hasn't approved; the reviewer's approval persists in stats
     await expect(page.getByTestId("approval-stats")).toContainText("1 approved");
   });

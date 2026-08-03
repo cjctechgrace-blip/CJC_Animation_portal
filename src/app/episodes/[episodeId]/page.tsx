@@ -244,6 +244,8 @@ export default async function EpisodePage({
                   (n, s) => n + s.comments.length,
                   0
                 )}
+                round={episode.reviewRound}
+                canStartRound={user.role === "admin" || user.role === "editor"}
               />
             </div>
           </div>

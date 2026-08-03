@@ -34,23 +34,48 @@ async function ensureBootstrapAdmin(): Promise<void> {
       email,
       name: email.split("@")[0],
       role: "admin",
+      active: true,
       passwordHash: await bcrypt.hash(password, 10),
     },
   });
 }
 
-/** Verify email + password. Returns the user or null. Invite-only: no signup path. */
+/**
+ * Verify email + password. Returns the user, "inactive" for a correct password
+ * on an account awaiting clearance (or deactivated), or null.
+ */
 export async function verifyCredentials(
   email: string,
   password: string
-): Promise<SessionUser | null> {
+): Promise<SessionUser | "inactive" | null> {
   await ensureBootstrapAdmin();
-  const user = await db.user.findUnique({
-    where: { email: email.trim().toLowerCase() },
-  });
-  if (!user || !user.active) return null;
-  const ok = await bcrypt.compare(password, user.passwordHash);
+  const normalized = email.trim().toLowerCase();
+  const user = await db.user.findUnique({ where: { email: normalized } });
+  if (!user) return null;
+
+  let ok = await bcrypt.compare(password, user.passwordHash);
+
+  // Self-heal for the env-bootstrapped admin: ADMIN_PASSWORD in env re-syncs a
+  // drifted hash — but ONLY for an account that is still an active admin.
+  // Deactivation and demotion on /team always win; the heal can never
+  // reactivate or re-promote an account.
+  if (
+    !ok &&
+    user.active &&
+    user.role === "admin" &&
+    normalized === process.env.ADMIN_EMAIL?.trim().toLowerCase() &&
+    password === process.env.ADMIN_PASSWORD &&
+    password.length >= 8
+  ) {
+    await db.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await bcrypt.hash(password, 10) },
+    });
+    ok = true;
+  }
+
   if (!ok) return null;
+  if (!user.active) return "inactive";
   return { id: user.id, email: user.email, name: user.name, role: user.role };
 }
 

@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { toggleEpisodeApprovalAction } from "@/lib/actions";
+import {
+  startReviewRoundAction,
+  toggleEpisodeApprovalAction,
+} from "@/lib/actions";
 
 export function ApprovalBar({
   episodeId,
@@ -10,12 +13,16 @@ export function ApprovalBar({
   approverNames,
   viewedCount,
   feedbackCount,
+  round,
+  canStartRound,
 }: {
   episodeId: string;
   viewerApproved: boolean;
   approverNames: string[];
   viewedCount: number;
   feedbackCount: number;
+  round: number;
+  canStartRound: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -27,11 +34,31 @@ export function ApprovalBar({
     setBusy(false);
   }
 
+  async function nextRound() {
+    if (
+      !window.confirm(
+        `Start review round ${round + 1}? Everyone's approvals reset and the team is notified to re-review.`
+      )
+    )
+      return;
+    setBusy(true);
+    await startReviewRoundAction({ episodeId });
+    router.refresh();
+    setBusy(false);
+  }
+
   return (
     <div
       className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
       data-testid="approval-bar"
     >
+      <span
+        className="rounded-full bg-reel-soft px-2.5 py-1 font-semibold text-reel"
+        data-testid="review-round"
+        title="Which review cycle this episode is on"
+      >
+        Round {round}
+      </span>
       <button
         type="button"
         onClick={toggle}
@@ -63,6 +90,19 @@ export function ApprovalBar({
         {viewedCount} viewed · {feedbackCount}{" "}
         {feedbackCount === 1 ? "note" : "notes"}
       </span>
+
+      {canStartRound ? (
+        <button
+          type="button"
+          onClick={nextRound}
+          disabled={busy}
+          data-testid="start-round"
+          className="font-medium text-reel hover:underline"
+          title="After re-editing, reset approvals and ask the team to review again"
+        >
+          ↻ Start round {round + 1}
+        </button>
+      ) : null}
     </div>
   );
 }

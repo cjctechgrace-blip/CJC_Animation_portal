@@ -39,3 +39,7 @@ DO $$ BEGIN
   ALTER TABLE "EpisodeVisit" ADD CONSTRAINT "EpisodeVisit_userId_fkey"
     FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Review rounds (added 2026-08-03): which review cycle an episode is on.
+ALTER TABLE "Episode" ADD COLUMN IF NOT EXISTS "reviewRound" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "Episode" ADD COLUMN IF NOT EXISTS "archivedAt" TIMESTAMP(3);

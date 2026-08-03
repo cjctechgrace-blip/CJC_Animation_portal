@@ -78,7 +78,7 @@ export function MemberRow({ member, isSelf }: { member: Member; isSelf: boolean 
             {isSelf ? <span className="ml-1 text-xs font-normal text-ink-faint">(you)</span> : null}
             {!member.active ? (
               <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">
-                deactivated
+                no access — activate to clear
               </span>
             ) : null}
           </p>

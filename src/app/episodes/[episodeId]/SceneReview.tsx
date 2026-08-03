@@ -8,7 +8,9 @@ import {
   toggleResolvedAction,
   generatePromptAction,
   deleteCommentAction,
+  replaceSceneVideoAction,
 } from "@/lib/actions";
+import { uploadScenesToStorage, type UploadMode } from "@/lib/uploadScenes";
 import { formatTimecode, formatWhen, initialsOf } from "@/lib/format";
 import {
   SceneEditor,
@@ -93,6 +95,8 @@ export function SceneReview({
   episodeScenes,
   edits,
   viewer,
+  uploadMode,
+  canReplace,
 }: {
   sceneId: string;
   hasVideo: boolean;
@@ -103,6 +107,8 @@ export function SceneReview({
   episodeScenes: EpisodeSceneRef[];
   edits: EditRecord[];
   viewer: Viewer;
+  uploadMode: UploadMode;
+  canReplace: boolean;
 }) {
   const [mode, setMode] = useState<"original" | "edit">("original");
   const router = useRouter();
@@ -112,6 +118,42 @@ export function SceneReview({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [replaceStatus, setReplaceStatus] = useState<string | null>(null);
+
+  async function handleReplaceFile(file: File | undefined) {
+    if (!file || !file.type.startsWith("video/")) return;
+    if (
+      !window.confirm(
+        "Replace this scene's clip with the new file? The old clip is deleted from storage; all notes stay."
+      )
+    )
+      return;
+    try {
+      const [uploaded] = await uploadScenesToStorage(
+        [file],
+        (s) =>
+          setReplaceStatus(
+            s.phase === "compress"
+              ? `Compressing… ${s.pct}%`
+              : `Uploading… ${s.pct}%`
+          ),
+        uploadMode
+      );
+      setReplaceStatus("Saving…");
+      const res = await replaceSceneVideoAction({
+        sceneId,
+        videoKey: uploaded.videoKey,
+        mimeType: uploaded.mimeType,
+      });
+      if (!res.ok) throw new Error(res.error || "Could not replace the clip.");
+      setReplaceStatus(null);
+      router.refresh();
+    } catch (e) {
+      setReplaceStatus(
+        e instanceof Error ? e.message : "Something went wrong."
+      );
+    }
+  }
 
   // marking state
   const [marking, setMarking] = useState(false);
@@ -466,17 +508,37 @@ export function SceneReview({
                   ◈ Mark a spot / region
                 </button>
               )}
+              {canReplace ? (
+                <label
+                  className="ml-auto cursor-pointer font-medium text-ink-soft hover:text-ink"
+                  data-testid="replace-clip"
+                  title="Upload a new version of this clip (for the next review round)"
+                >
+                  ↻ Replace clip
+                  <input
+                    type="file"
+                    accept="video/*"
+                    className="hidden"
+                    onChange={(e) => handleReplaceFile(e.target.files?.[0])}
+                  />
+                </label>
+              ) : null}
               <button
                 type="button"
                 onClick={saveFrame}
                 data-testid="save-frame"
-                className="ml-auto font-medium text-ink-soft hover:text-ink"
+                className={`${canReplace ? "" : "ml-auto "}font-medium text-ink-soft hover:text-ink`}
               >
                 📷 Save frame
               </button>
             </div>
           ) : null}
 
+          {replaceStatus ? (
+            <p className="mt-2 text-xs font-medium text-reel" data-testid="replace-status">
+              {replaceStatus}
+            </p>
+          ) : null}
           {error ? (
             <p role="alert" className="mt-2 text-sm font-medium text-red-600">
               {error}

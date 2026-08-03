@@ -88,6 +88,8 @@ model Episode {
   status         String    @default("review")
   publishAt      DateTime?
   youtubeVideoId String?
+  reviewRound    Int       @default(1)
+  archivedAt     DateTime?
 
   scenes    Scene[]
   posts     Post[]
