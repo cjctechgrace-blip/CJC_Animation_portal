@@ -10,7 +10,7 @@
     {
       "name": "cjc-portal-prod",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start", "--", "-p", "3100"],
+      "runtimeArgs": ["run", "preview:prod"],
       "port": 3100
     }
   ]
