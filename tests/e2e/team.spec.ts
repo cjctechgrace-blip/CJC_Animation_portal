@@ -8,6 +8,16 @@ async function login(page: Page, email: string, password = "password123") {
   await expect(page).toHaveURL(/\/dashboard/);
 }
 
+test.describe("Env-bootstrap admin", () => {
+  test("ADMIN_EMAIL/ADMIN_PASSWORD creates the account on first login", async ({
+    page,
+  }) => {
+    // this account is NOT in the seed — it exists only via the env bootstrap
+    await login(page, "bootstrap-admin@cjc.test", "bootstrap-pass-123");
+    await expect(page.getByTestId("team-link")).toBeVisible(); // admin powers
+  });
+});
+
 test.describe("Phase 3 — team accounts & accountability", () => {
   test("admin sees the Team page; members don't", async ({ page }) => {
     await login(page, "admin@cjc.test");

@@ -14,11 +14,37 @@ export type SessionUser = {
   role: string;
 };
 
+/**
+ * Bootstrap admin from env: when ADMIN_EMAIL + ADMIN_PASSWORD are set and no
+ * account with that email exists yet, create it as an active admin. Runs on
+ * login attempts, so setting the two env vars is all it takes to get the first
+ * admin — even in production. Existing accounts are never overwritten (change
+ * a password with a reset link from /team, not by editing env).
+ */
+async function ensureBootstrapAdmin(): Promise<void> {
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD;
+  if (!email || !password || password.length < 8) return;
+
+  const existing = await db.user.findUnique({ where: { email } });
+  if (existing) return;
+
+  await db.user.create({
+    data: {
+      email,
+      name: email.split("@")[0],
+      role: "admin",
+      passwordHash: await bcrypt.hash(password, 10),
+    },
+  });
+}
+
 /** Verify email + password. Returns the user or null. Invite-only: no signup path. */
 export async function verifyCredentials(
   email: string,
   password: string
 ): Promise<SessionUser | null> {
+  await ensureBootstrapAdmin();
   const user = await db.user.findUnique({
     where: { email: email.trim().toLowerCase() },
   });

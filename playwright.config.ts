@@ -29,6 +29,9 @@ export default defineConfig({
       BUNNY_STREAM_LIBRARY_ID: "",
       BUNNY_STREAM_API_KEY: "",
       BUNNY_STREAM_CDN_HOST: "",
+      // exercises the env-bootstrap admin path
+      ADMIN_EMAIL: "bootstrap-admin@cjc.test",
+      ADMIN_PASSWORD: "bootstrap-pass-123",
     },
   },
 });
