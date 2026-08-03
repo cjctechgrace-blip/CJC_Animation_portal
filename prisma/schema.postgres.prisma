@@ -31,6 +31,7 @@ model User {
   invitesCreated Invite[]
   approvals      EpisodeApproval[]
   visits         EpisodeVisit[]
+  sceneVersions  SceneVersion[]
 }
 
 model Invite {
@@ -136,9 +137,28 @@ model Scene {
 
   comments Comment[]
   edits    Edit[]
+  versions SceneVersion[]
 
   @@index([episodeId])
 }
+// Prior clips of a scene, kept for before/after comparison. The scene's
+// current clip lives on Scene.videoFile; each replacement pushes the old one
+// here as "Original" / "Improvement N".
+model SceneVersion {
+  id          String   @id @default(cuid())
+  sceneId     String
+  scene       Scene    @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  versionNo   Int      // 0 = Original, 1 = Improvement 1, ...
+  videoFile   String
+  mimeType    String?
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([sceneId, versionNo])
+  @@index([sceneId])
+}
+
 
 model Edit {
   id          String   @id @default(cuid())

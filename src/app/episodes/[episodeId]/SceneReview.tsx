@@ -28,13 +28,11 @@ type Reply = {
 
 export type Viewer = { id: string; isAdmin: boolean; isEditor: boolean };
 
-export type Mark = {
-  type: "rect" | "point";
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
+export type Mark =
+  | { type: "rect" | "point"; x: number; y: number; w: number; h: number }
+  | { type: "path"; points: { x: number; y: number }[] };
+
+export type SceneVersionRef = { versionNo: number };
 
 export type SceneComment = {
   id: string;
@@ -56,6 +54,27 @@ function MarkShape({ mark, kind }: { mark: Mark; kind: "draft" | "active" }) {
     kind === "active"
       ? "border-accent bg-accent/20 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"
       : "border-reel bg-reel/20";
+  if (mark.type === "path") {
+    return (
+      <svg
+        className="pointer-events-none absolute inset-0 h-full w-full"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        data-testid="mark-shape"
+      >
+        <polyline
+          points={mark.points.map((p) => `${p.x * 100},${p.y * 100}`).join(" ")}
+          fill="none"
+          stroke={kind === "active" ? "#f59e0b" : "#d8742e"}
+          strokeWidth={1.2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+          style={{ strokeWidth: 4 }}
+        />
+      </svg>
+    );
+  }
   if (mark.type === "point") {
     return (
       <div
@@ -97,6 +116,7 @@ export function SceneReview({
   viewer,
   uploadMode,
   canReplace,
+  versions,
 }: {
   sceneId: string;
   hasVideo: boolean;
@@ -109,6 +129,7 @@ export function SceneReview({
   viewer: Viewer;
   uploadMode: UploadMode;
   canReplace: boolean;
+  versions: SceneVersionRef[];
 }) {
   const [mode, setMode] = useState<"original" | "edit">("original");
   const router = useRouter();
@@ -124,7 +145,7 @@ export function SceneReview({
     if (!file || !file.type.startsWith("video/")) return;
     if (
       !window.confirm(
-        "Replace this scene's clip with the new file? The old clip is deleted from storage; all notes stay."
+        "Upload the improved clip? The current one is kept as a version so everyone can compare before/after; all notes stay."
       )
     )
       return;
@@ -157,6 +178,10 @@ export function SceneReview({
 
   // marking state
   const [marking, setMarking] = useState(false);
+  const [markTool, setMarkTool] = useState<"shape" | "pen">("shape");
+  // which clip version is playing: null = current, otherwise a prior versionNo
+  const [viewVersion, setViewVersion] = useState<number | null>(null);
+  const pathRef = useRef<{ x: number; y: number }[]>([]);
   const [pendingMark, setPendingMark] = useState<Mark | null>(null);
   const [draftMark, setDraftMark] = useState<Mark | null>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
@@ -200,18 +225,48 @@ export function SceneReview({
     setDraftMark(m);
   }
 
-  function startMarking() {
+  function startMarking(tool: "shape" | "pen" = "shape") {
     videoRef.current?.pause();
     setActiveId(null);
     setPendingMark(null);
     setDraft2(null);
     setError(null);
+    setMarkTool(tool);
     setMarking(true);
   }
 
   function beginDraw(e: React.MouseEvent) {
     if (!marking) return;
     e.preventDefault();
+
+    if (markTool === "pen") {
+      const s = normFromClient(e.clientX, e.clientY);
+      pathRef.current = [s];
+      setDraft2({ type: "path", points: [s] });
+      const move = (ev: MouseEvent) => {
+        const pt = normFromClient(ev.clientX, ev.clientY);
+        const last = pathRef.current[pathRef.current.length - 1];
+        // skip micro-movements to keep the stored path light
+        if (Math.hypot(pt.x - last.x, pt.y - last.y) < 0.004) return;
+        pathRef.current = [...pathRef.current, pt];
+        setDraft2({ type: "path", points: pathRef.current });
+      };
+      const up = () => {
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+        const pts = pathRef.current;
+        pathRef.current = [];
+        setDraft2(null);
+        if (pts.length >= 3) {
+          setPendingMark({ type: "path", points: pts });
+          setMarking(false);
+        }
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+      return;
+    }
+
     const s = normFromClient(e.clientX, e.clientY);
     startRef.current = s;
     setDraft2({ type: "point", x: s.x, y: s.y, w: 0, h: 0 });
@@ -259,7 +314,18 @@ export function SceneReview({
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       ctx.strokeStyle = "#d8742e";
       ctx.lineWidth = Math.max(3, canvas.width * 0.005);
-      if (mark.type === "rect") {
+      if (mark.type === "path") {
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        mark.points.forEach((pt, i) => {
+          const px = pt.x * canvas.width;
+          const py = pt.y * canvas.height;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.stroke();
+      } else if (mark.type === "rect") {
         ctx.strokeRect(
           mark.x * canvas.width,
           mark.y * canvas.height,
@@ -375,6 +441,44 @@ export function SceneReview({
           >
             ✂ Edit{edits.length > 0 ? ` (${edits.length})` : ""}
           </button>
+
+          {versions.length > 0 && mode === "original" ? (
+            <span className="ml-auto flex items-center gap-2 text-xs">
+              <select
+                className="field w-auto px-2 py-1 text-xs"
+                value={viewVersion === null ? "current" : String(viewVersion)}
+                onChange={(e) =>
+                  setViewVersion(
+                    e.target.value === "current" ? null : parseInt(e.target.value, 10)
+                  )
+                }
+                data-testid="version-select"
+                title="This scene has been re-uploaded — compare versions"
+              >
+                <option value="current">
+                  Improvement {versions.length} (current)
+                </option>
+                {[...versions]
+                  .sort((a, b) => b.versionNo - a.versionNo)
+                  .map((v) => (
+                    <option key={v.versionNo} value={String(v.versionNo)}>
+                      {v.versionNo === 0 ? "Original" : `Improvement ${v.versionNo}`}
+                    </option>
+                  ))}
+              </select>
+              <button
+                type="button"
+                data-testid="before-after"
+                className="btn-ghost px-2 py-1 text-xs"
+                title="Flip between the newest clip and the one before it"
+                onClick={() =>
+                  setViewVersion(viewVersion === null ? versions.length - 1 : null)
+                }
+              >
+                {viewVersion === null ? "◀ Before" : "After ▶"}
+              </button>
+            </span>
+          ) : null}
         </div>
 
         {mode === "edit" ? (
@@ -390,7 +494,12 @@ export function SceneReview({
           {hasVideo && videoSrc ? (
             <video
               ref={videoRef}
-              src={videoSrc}
+              key={viewVersion === null ? "current" : `v${viewVersion}`}
+              src={
+                viewVersion === null
+                  ? videoSrc
+                  : `/api/video/${sceneId}?v=${viewVersion}`
+              }
               controls={!marking}
               crossOrigin="anonymous"
               data-testid="scene-video"
@@ -431,14 +540,26 @@ export function SceneReview({
               {shownMark ? <MarkShape mark={shownMark} kind={shownKind} /> : null}
               {marking ? (
                 <div className="pointer-events-none absolute inset-x-0 top-0 bg-black/60 px-3 py-1.5 text-center text-xs font-medium text-white">
-                  Drag a region, or click a spot — then write your note.
+                  {markTool === "pen"
+                    ? "Draw on the frame with the marker — release to finish."
+                    : "Drag a region, or click a spot — then write your note."}
                 </div>
               ) : null}
             </div>
           ) : null}
         </div>
 
-        <div className="card p-4">
+        {viewVersion !== null ? (
+          <div
+            className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs font-medium text-accent-ink"
+            data-testid="viewing-old-version"
+          >
+            Viewing {viewVersion === 0 ? "the Original" : `Improvement ${viewVersion}`}{" "}
+            (read-only) — switch back to the current clip to leave notes.
+          </div>
+        ) : null}
+
+        <div className={`card p-4 ${viewVersion !== null ? "hidden" : ""}`}>
           <div className="mb-2 flex items-center justify-between">
             <label htmlFor="note" className="label mb-0">
               Leave a note
@@ -481,7 +602,13 @@ export function SceneReview({
               ) : pendingMark ? (
                 <span className="flex items-center gap-2 text-reel">
                   <span data-testid="mark-attached" className="font-medium">
-                    ◈ {pendingMark.type === "point" ? "Spot" : "Region"} marked
+                    ◈{" "}
+                    {pendingMark.type === "path"
+                      ? "Drawing"
+                      : pendingMark.type === "point"
+                      ? "Spot"
+                      : "Region"}{" "}
+                    marked
                   </span>
                   <button
                     type="button"
@@ -492,21 +619,33 @@ export function SceneReview({
                   </button>
                   <button
                     type="button"
-                    onClick={startMarking}
+                    onClick={() =>
+                      startMarking(pendingMark.type === "path" ? "pen" : "shape")
+                    }
                     className="text-xs text-reel hover:underline"
                   >
                     redo
                   </button>
                 </span>
               ) : (
-                <button
-                  type="button"
-                  onClick={startMarking}
-                  data-testid="mark-toggle"
-                  className="font-medium text-reel hover:underline"
-                >
-                  ◈ Mark a spot / region
-                </button>
+                <span className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => startMarking("shape")}
+                    data-testid="mark-toggle"
+                    className="font-medium text-reel hover:underline"
+                  >
+                    ◈ Mark a spot / region
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startMarking("pen")}
+                    data-testid="draw-toggle"
+                    className="font-medium text-reel hover:underline"
+                  >
+                    ✏️ Draw
+                  </button>
+                </span>
               )}
               {canReplace ? (
                 <label

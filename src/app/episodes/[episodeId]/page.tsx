@@ -14,6 +14,7 @@ import type { UploadMode } from "@/lib/uploadScenes";
 import { Header } from "@/components/Header";
 import { EpisodeView, type SceneData } from "./EpisodeView";
 import { DeleteEpisodeButton } from "./DeleteEpisodeButton";
+import { RenameButton } from "@/components/RenameButton";
 import type { DiscussionPost } from "./EpisodeDiscussion";
 import { ActivityFeed, buildActivity } from "./ActivityFeed";
 import { ApprovalBar } from "./ApprovalBar";
@@ -24,7 +25,7 @@ function parseMark(raw: string | null) {
   if (!raw) return null;
   try {
     const m = JSON.parse(raw);
-    if (m && typeof m.x === "number" && typeof m.y === "number") return m;
+    if (m && (typeof m.x === "number" || Array.isArray(m.points))) return m;
   } catch {
     // ignore malformed mark
   }
@@ -51,6 +52,7 @@ export default async function EpisodePage({
         orderBy: { order: "asc" },
         include: {
           createdBy: { select: { name: true } },
+          versions: { select: { versionNo: true }, orderBy: { versionNo: "asc" } },
           edits: {
             select: {
               id: true,
@@ -132,6 +134,7 @@ export default async function EpisodePage({
       id: s.id,
       title: s.title,
       createdById: s.createdById,
+      versions: s.versions.map((v) => ({ versionNo: v.versionNo })),
       hasVideo: Boolean(s.videoFile),
       videoSrc: s.videoFile
         ? isBunnyKey(s.videoFile)
@@ -252,11 +255,19 @@ export default async function EpisodePage({
           {user.role === "admin" ||
           user.role === "editor" ||
           episode.createdById === user.id ? (
-            <DeleteEpisodeButton
-              episodeId={episode.id}
-              projectId={episode.project.id}
-              title={episode.title}
-            />
+            <span className="flex shrink-0 items-center gap-2">
+              <RenameButton
+                kind="episode"
+                id={episode.id}
+                currentName={episode.title}
+                currentDescription={episode.description}
+              />
+              <DeleteEpisodeButton
+                episodeId={episode.id}
+                projectId={episode.project.id}
+                title={episode.title}
+              />
+            </span>
           ) : null}
         </div>
       </div>

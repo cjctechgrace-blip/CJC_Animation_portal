@@ -41,14 +41,18 @@ test.describe("Replace scene clip", () => {
       .locator('input[type="file"]')
       .setInputFiles(FIXTURE);
 
-    // the old object is deleted from storage and a new one is written
+    // a new object is written; the old clip is KEPT (it becomes a version
+    // for before/after comparison)
     await expect
-      .poll(() => fs.existsSync(path.join(STORAGE_DIR, "demo-scene.mp4")), {
-        timeout: 20_000,
-      })
-      .toBe(false);
-    const added = fs.readdirSync(STORAGE_DIR).filter((f) => !before.has(f));
-    expect(added.length).toBe(1);
+      .poll(
+        () => fs.readdirSync(STORAGE_DIR).filter((f) => !before.has(f)).length,
+        { timeout: 20_000 }
+      )
+      .toBe(1);
+    expect(fs.existsSync(path.join(STORAGE_DIR, "demo-scene.mp4"))).toBe(true);
+    await expect(page.getByTestId("version-select")).toBeVisible({
+      timeout: 20_000,
+    });
 
     // on success the progress line clears (a failure would leave an error there)
     await expect(page.getByTestId("replace-status")).toHaveCount(0);

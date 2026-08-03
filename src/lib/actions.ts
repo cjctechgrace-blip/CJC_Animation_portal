@@ -130,6 +130,7 @@ export async function deleteProjectAction(input: {
             select: {
               videoFile: true,
               comments: { select: { frameImage: true } },
+              versions: { select: { videoFile: true } },
             },
           },
         },
@@ -146,6 +147,7 @@ export async function deleteProjectAction(input: {
     for (const s of ep.scenes) {
       keys.push(s.videoFile);
       for (const c of s.comments) keys.push(c.frameImage);
+      for (const v of s.versions) keys.push(v.videoFile);
     }
   }
   await deleteObjects(keys);
@@ -302,6 +304,7 @@ export async function deleteSceneAction(input: {
       videoFile: true,
       createdById: true,
       comments: { select: { frameImage: true } },
+      versions: { select: { videoFile: true } },
     },
   });
   if (!scene) return { ok: false, error: "Scene not found." };
@@ -309,7 +312,11 @@ export async function deleteSceneAction(input: {
     return { ok: false, error: "Only an editor, an admin, or the scene's uploader can delete it." };
   }
 
-  await deleteObjects([scene.videoFile, ...scene.comments.map((c) => c.frameImage)]);
+  await deleteObjects([
+    scene.videoFile,
+    ...scene.comments.map((c) => c.frameImage),
+    ...scene.versions.map((v) => v.videoFile),
+  ]);
   await db.scene.delete({ where: { id: scene.id } });
 
   revalidatePath(`/episodes/${scene.episodeId}`);
@@ -328,7 +335,11 @@ export async function deleteEpisodeAction(input: {
       projectId: true,
       createdById: true,
       scenes: {
-        select: { videoFile: true, comments: { select: { frameImage: true } } },
+        select: {
+          videoFile: true,
+          comments: { select: { frameImage: true } },
+          versions: { select: { videoFile: true } },
+        },
       },
     },
   });
@@ -341,6 +352,7 @@ export async function deleteEpisodeAction(input: {
   for (const s of episode.scenes) {
     keys.push(s.videoFile);
     for (const c of s.comments) keys.push(c.frameImage);
+    for (const v of s.versions) keys.push(v.videoFile);
   }
   await deleteObjects(keys);
   await db.episode.delete({ where: { id: episode.id } });
@@ -1153,6 +1165,7 @@ export async function replaceSceneVideoAction(input: {
     select: {
       id: true,
       videoFile: true,
+      mimeType: true,
       createdById: true,
       episodeId: true,
       title: true,
@@ -1163,13 +1176,27 @@ export async function replaceSceneVideoAction(input: {
     return { ok: false, error: "Only an editor, an admin, or the scene's uploader can replace its clip." };
   }
 
-  await db.scene.update({
-    where: { id: scene.id },
-    data: { videoFile: input.videoKey, mimeType: input.mimeType ?? "video/mp4" },
-  });
-  // best effort — the swap is already committed; a failed purge must not
-  // surface as an error (the file is merely orphaned, not user-visible)
-  if (scene.videoFile) await deleteObjects([scene.videoFile]).catch(() => {});
+  // keep the outgoing clip as a version so the team can compare before/after
+  const priorVersions = await db.sceneVersion.count({ where: { sceneId: scene.id } });
+  await db.$transaction([
+    ...(scene.videoFile
+      ? [
+          db.sceneVersion.create({
+            data: {
+              sceneId: scene.id,
+              versionNo: priorVersions, // 0 = Original, 1 = Improvement 1, ...
+              videoFile: scene.videoFile,
+              mimeType: scene.mimeType,
+              createdById: user.id,
+            },
+          }),
+        ]
+      : []),
+    db.scene.update({
+      where: { id: scene.id },
+      data: { videoFile: input.videoKey, mimeType: input.mimeType ?? "video/mp4" },
+    }),
+  ]);
 
   revalidatePath(`/episodes/${scene.episodeId}`);
   return { ok: true };
@@ -1211,7 +1238,11 @@ export async function sweepArchivedEpisodes(): Promise<void> {
     select: {
       id: true,
       scenes: {
-        select: { videoFile: true, comments: { select: { frameImage: true } } },
+        select: {
+          videoFile: true,
+          comments: { select: { frameImage: true } },
+          versions: { select: { videoFile: true } },
+        },
       },
     },
   });
@@ -1220,6 +1251,7 @@ export async function sweepArchivedEpisodes(): Promise<void> {
     for (const s of episode.scenes) {
       keys.push(s.videoFile);
       for (const c of s.comments) keys.push(c.frameImage);
+      for (const v of s.versions) keys.push(v.videoFile);
     }
     try {
       await deleteObjects(keys);
@@ -1228,4 +1260,69 @@ export async function sweepArchivedEpisodes(): Promise<void> {
     }
     await db.episode.delete({ where: { id: episode.id } });
   }
+}
+
+/* --------------------------- renaming --------------------------- */
+
+/** Rename a project (editors/admins, or its creator). */
+export async function renameProjectAction(input: {
+  projectId: string;
+  name: string;
+  description?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const name = input.name.trim();
+  if (!name) return { ok: false, error: "Give the project a name." };
+  const project = await db.project.findUnique({
+    where: { id: input.projectId },
+    select: { id: true, createdById: true },
+  });
+  if (!project) return { ok: false, error: "Project not found." };
+  if (!canManageContent(user, project.createdById)) {
+    return { ok: false, error: "Only an editor, an admin, or the creator can rename it." };
+  }
+  await db.project.update({
+    where: { id: project.id },
+    data: {
+      name: name.slice(0, 120),
+      ...(input.description !== undefined
+        ? { description: input.description.trim().slice(0, 500) }
+        : {}),
+    },
+  });
+  revalidatePath(`/projects/${project.id}`);
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/** Rename an episode (editors/admins, or its creator). */
+export async function renameEpisodeAction(input: {
+  episodeId: string;
+  title: string;
+  description?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const title = input.title.trim();
+  if (!title) return { ok: false, error: "Give the episode a title." };
+  const episode = await db.episode.findUnique({
+    where: { id: input.episodeId },
+    select: { id: true, createdById: true, projectId: true },
+  });
+  if (!episode) return { ok: false, error: "Episode not found." };
+  if (!canManageContent(user, episode.createdById)) {
+    return { ok: false, error: "Only an editor, an admin, or the creator can rename it." };
+  }
+  await db.episode.update({
+    where: { id: episode.id },
+    data: {
+      title: title.slice(0, 160),
+      ...(input.description !== undefined
+        ? { description: input.description.trim().slice(0, 500) }
+        : {}),
+    },
+  });
+  revalidatePath(`/episodes/${episode.id}`);
+  revalidatePath(`/projects/${episode.projectId}`);
+  revalidatePath("/board");
+  return { ok: true };
 }

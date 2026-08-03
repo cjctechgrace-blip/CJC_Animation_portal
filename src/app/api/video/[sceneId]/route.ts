@@ -48,33 +48,49 @@ export async function GET(
 
   const scene = await db.scene.findUnique({
     where: { id: params.sceneId },
-    select: { videoFile: true, mimeType: true },
+    select: { id: true, videoFile: true, mimeType: true },
   });
   if (!scene?.videoFile) {
     return new Response("No video", { status: 404 });
   }
 
+  // ?v=<n> serves a prior version of this scene (0 = Original, 1 = Improvement 1…)
+  let file = scene.videoFile;
+  let mime = scene.mimeType;
+  const vParam = req.nextUrl.searchParams.get("v");
+  if (vParam !== null) {
+    const versionNo = parseInt(vParam, 10);
+    if (Number.isNaN(versionNo)) return new Response("Bad version", { status: 400 });
+    const version = await db.sceneVersion.findUnique({
+      where: { sceneId_versionNo: { sceneId: scene.id, versionNo } },
+      select: { videoFile: true, mimeType: true },
+    });
+    if (!version) return new Response("Version not found", { status: 404 });
+    file = version.videoFile;
+    mime = version.mimeType;
+  }
+
   // Bunny Stream: redirect to the CDN rendition once encoding is done.
-  if (scene.videoFile.startsWith("bunny:")) {
+  if (file.startsWith("bunny:")) {
     const { getBunnyVideoState, bunnyVideoIdFromKey } = await import("@/lib/bunny");
-    const state = await getBunnyVideoState(bunnyVideoIdFromKey(scene.videoFile));
+    const state = await getBunnyVideoState(bunnyVideoIdFromKey(file));
     if (state.ready && state.mp4Url) return Response.redirect(state.mp4Url, 307);
     return new Response("Video is still processing", { status: 503 });
   }
 
   // Cloud: hand off to Supabase Storage's public URL (it supports Range/seeking).
   if (isCloudStorage()) {
-    return Response.redirect(publicUrl(scene.videoFile), 307);
+    return Response.redirect(publicUrl(file), 307);
   }
 
-  const filePath = storagePathFor(scene.videoFile);
+  const filePath = storagePathFor(file);
   if (!fs.existsSync(filePath)) {
     return new Response("File missing", { status: 404 });
   }
 
   const stat = fs.statSync(filePath);
   const size = stat.size;
-  const contentType = scene.mimeType || MIME_FALLBACK;
+  const contentType = mime || MIME_FALLBACK;
   const range = req.headers.get("range");
 
   if (range) {
