@@ -22,7 +22,11 @@ export function DeleteProjectButton({
     )
       return;
     start(async () => {
-      await deleteProjectAction({ projectId });
+      const res = await deleteProjectAction({ projectId });
+      if (!res.ok) {
+        window.alert(res.error || "Could not delete the project.");
+        return;
+      }
       router.push("/dashboard");
       router.refresh();
     });

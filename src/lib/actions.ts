@@ -64,6 +64,12 @@ export async function loginAction(
     recordFailure(throttleKey);
     return { error: "That email and password don't match. Try again." };
   }
+  if (user === "inactive") {
+    return {
+      error:
+        "This account doesn't have clearance yet — an admin needs to activate it on the Team page.",
+    };
+  }
 
   clearFailures(throttleKey);
   await createSession(user.id);
@@ -238,6 +244,17 @@ export async function createEpisodeWithScenesAction(input: {
     });
   }
 
+  // let the team know there's something new to review
+  {
+    const { notifyTeam, appLink } = await import("./email");
+    await notifyTeam({
+      roles: "all",
+      excludeUserId: user.id,
+      subject: `New episode to review: ${title}`,
+      html: `<p><strong>${user.name}</strong> uploaded <strong>${title}</strong> — it's ready for review (round 1).</p><p><a href="${appLink(`/episodes/${episode.id}`)}">Start reviewing →</a></p>`,
+    });
+  }
+
   revalidatePath(`/projects/${input.projectId}`);
   return { ok: true, episodeId: episode.id };
 }
@@ -372,7 +389,12 @@ export async function addCommentAction(input: {
 
   const scene = await db.scene.findUnique({
     where: { id: input.sceneId },
-    select: { id: true, episodeId: true },
+    select: {
+      id: true,
+      episodeId: true,
+      title: true,
+      episode: { select: { title: true, reviewRound: true } },
+    },
   });
   if (!scene) return { ok: false, error: "Scene not found." };
 
@@ -395,6 +417,17 @@ export async function addCommentAction(input: {
         data: { frameImage },
       });
     }
+  }
+
+  // tell the editors & admins a review note came in
+  {
+    const { notifyTeam, appLink } = await import("./email");
+    await notifyTeam({
+      roles: ["admin", "editor"],
+      excludeUserId: user.id,
+      subject: `${user.name} left a review on ${scene.episode.title}`,
+      html: `<p><strong>${user.name}</strong> pinned a note on <strong>${scene.title}</strong> (${scene.episode.title}, round ${scene.episode.reviewRound}):</p><blockquote>${body.slice(0, 300)}</blockquote><p><a href="${appLink(`/episodes/${scene.episodeId}`)}">Open the episode →</a></p>`,
+    });
   }
 
   revalidatePath(`/episodes/${scene.episodeId}`);
@@ -990,8 +1023,194 @@ export async function toggleEpisodeApprovalAction(input: {
       data: { episodeId: episode.id, userId: user.id },
     });
     approved = true;
+
+    const full = await db.episode.findUnique({
+      where: { id: episode.id },
+      select: {
+        title: true,
+        reviewRound: true,
+        _count: { select: { approvals: true } },
+      },
+    });
+    const { notifyTeam, appLink } = await import("./email");
+    await notifyTeam({
+      roles: ["admin", "editor"],
+      excludeUserId: user.id,
+      subject: `${user.name} approved ${full?.title ?? "an episode"}`,
+      html: `<p><strong>${user.name}</strong> approved <strong>${full?.title}</strong> (round ${full?.reviewRound}) — ${full?._count.approvals} approval${full?._count.approvals === 1 ? "" : "s"} so far.</p><p><a href="${appLink(`/episodes/${episode.id}`)}">See the episode →</a></p>`,
+    });
   }
   revalidatePath(`/episodes/${episode.id}`);
   revalidatePath("/board");
   return { ok: true, approved };
+}
+
+/* ----------------------- public signup (needs clearance) ----------------------- */
+
+/** Anyone can request an account; it stays inactive until an admin activates
+ * it on /team (or they come in via an invite link instead). */
+export async function signupAction(input: {
+  name: string;
+  email: string;
+  password: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const email = input.email.trim().toLowerCase();
+  const name = input.name.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "Enter a valid email address." };
+  }
+  if (!name) return { ok: false, error: "Tell us your name." };
+  if (input.password.length < 8) {
+    return { ok: false, error: "Choose a password of at least 8 characters." };
+  }
+  const throttleKey = `signup:${email}`;
+  if (isThrottled(throttleKey)) {
+    return { ok: false, error: "Too many attempts. Try again later." };
+  }
+  recordFailure(throttleKey);
+
+  const existing = await db.user.findUnique({ where: { email } });
+  if (existing) {
+    return { ok: false, error: "That email already has an account. Sign in instead." };
+  }
+
+  await db.user.create({
+    data: {
+      email,
+      name,
+      role: "reviewer",
+      active: false, // awaiting admin clearance
+      passwordHash: await bcrypt.hash(input.password, 10),
+    },
+  });
+
+  const { notifyTeam, appLink } = await import("./email");
+  await notifyTeam({
+    roles: ["admin"],
+    subject: `${name} requested access to the portal`,
+    html: `<p><strong>${name}</strong> (${email}) signed up and is awaiting clearance.</p><p><a href="${appLink("/team")}">Review on the Team page →</a></p>`,
+  });
+
+  return { ok: true };
+}
+
+/* --------------------------- review rounds --------------------------- */
+
+/** Editor/admin: start the next review round — resets everyone's approvals,
+ * moves the episode back to "In review", and emails the team. */
+export async function startReviewRoundAction(input: {
+  episodeId: string;
+}): Promise<{ ok: boolean; round?: number; error?: string }> {
+  const actor = await requireEditor();
+  const episode = await db.episode.findUnique({
+    where: { id: input.episodeId },
+    select: { id: true, title: true, reviewRound: true },
+  });
+  if (!episode) return { ok: false, error: "Episode not found." };
+
+  const round = episode.reviewRound + 1;
+  await db.$transaction([
+    db.episodeApproval.deleteMany({ where: { episodeId: episode.id } }),
+    db.episode.update({
+      where: { id: episode.id },
+      data: { reviewRound: round, status: "review", publishAt: null },
+    }),
+  ]);
+
+  const { notifyTeam, appLink } = await import("./email");
+  await notifyTeam({
+    roles: "all",
+    excludeUserId: actor.id,
+    subject: `Round ${round} review requested: ${episode.title}`,
+    html: `<p>The team updated <strong>${episode.title}</strong> — it's ready for review round ${round}. Previous approvals were reset.</p><p><a href="${appLink(`/episodes/${episode.id}`)}">Open the episode →</a></p>`,
+  });
+
+  revalidatePath(`/episodes/${episode.id}`);
+  revalidatePath("/board");
+  return { ok: true, round };
+}
+
+/* --------------------------- replace a scene's clip --------------------------- */
+
+/** Swap a scene's video for a new upload (purges the old file). Notes stay. */
+export async function replaceSceneVideoAction(input: {
+  sceneId: string;
+  videoKey: string;
+  mimeType?: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const scene = await db.scene.findUnique({
+    where: { id: input.sceneId },
+    select: {
+      id: true,
+      videoFile: true,
+      createdById: true,
+      episodeId: true,
+      title: true,
+    },
+  });
+  if (!scene) return { ok: false, error: "Scene not found." };
+  if (!canManageContent(user, scene.createdById)) {
+    return { ok: false, error: "Only an editor, an admin, or the scene's uploader can replace its clip." };
+  }
+
+  await db.scene.update({
+    where: { id: scene.id },
+    data: { videoFile: input.videoKey, mimeType: input.mimeType ?? "video/mp4" },
+  });
+  if (scene.videoFile) await deleteObjects([scene.videoFile]);
+
+  revalidatePath(`/episodes/${scene.episodeId}`);
+  return { ok: true };
+}
+
+/* --------------------------- archive & purge --------------------------- */
+
+const RETENTION_DAYS = Number(process.env.ARCHIVE_RETENTION_DAYS ?? "14");
+
+/** Editor/admin: archive a published episode (or restore it). Archived
+ * episodes are permanently purged after the retention window. */
+export async function setEpisodeArchivedAction(input: {
+  episodeId: string;
+  archived: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  await requireEditor();
+  const episode = await db.episode.findUnique({
+    where: { id: input.episodeId },
+    select: { id: true, status: true },
+  });
+  if (!episode) return { ok: false, error: "Episode not found." };
+  if (input.archived && episode.status !== "published") {
+    return { ok: false, error: "Only published episodes can be archived." };
+  }
+  await db.episode.update({
+    where: { id: episode.id },
+    data: { archivedAt: input.archived ? new Date() : null },
+  });
+  revalidatePath("/board");
+  return { ok: true };
+}
+
+/** Hard-delete episodes whose archive retention has lapsed, freeing all their
+ * storage (Bunny/Supabase/local). Runs on board loads. */
+export async function sweepArchivedEpisodes(): Promise<void> {
+  const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const due = await db.episode.findMany({
+    where: { archivedAt: { not: null, lte: cutoff } },
+    select: {
+      id: true,
+      scenes: {
+        select: { videoFile: true, comments: { select: { frameImage: true } } },
+      },
+    },
+  });
+  for (const episode of due) {
+    const keys: (string | null)[] = [];
+    for (const s of episode.scenes) {
+      keys.push(s.videoFile);
+      for (const c of s.comments) keys.push(c.frameImage);
+    }
+    await deleteObjects(keys);
+    await db.episode.delete({ where: { id: episode.id } });
+  }
 }

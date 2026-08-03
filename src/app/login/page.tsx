@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { LoginForm } from "./LoginForm";
@@ -24,6 +25,14 @@ export default async function LoginPage() {
         <div className="card p-6">
           <LoginForm />
         </div>
+
+        <p className="mt-4 text-center text-xs text-ink-faint">
+          New here?{" "}
+          <Link href="/signup" className="text-reel hover:underline" data-testid="signup-link">
+            Request access
+          </Link>{" "}
+          — or use the invite link your admin sent you.
+        </p>
 
         {process.env.NODE_ENV !== "production" ? (
           // local development only — never shown on the live site

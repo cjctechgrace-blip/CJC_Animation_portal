@@ -116,6 +116,22 @@ async function main() {
     });
   }
 
+  const pilot = await db.episode.findFirst({
+    where: { title: "Ep 0 — Published pilot", projectId: project.id },
+  });
+  if (!pilot) {
+    await db.episode.create({
+      data: {
+        projectId: project.id,
+        title: "Ep 0 — Published pilot",
+        description: "Already live on the channel — demo for the archive flow.",
+        createdById: editorId,
+        status: "published",
+        publishAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+  }
+
   console.log(`Seeded ${USERS.length} users, project + demo episode with scenes.`);
   for (const u of USERS) console.log(`  - ${u.email} [${u.role}] pw:${u.pw}`);
 }

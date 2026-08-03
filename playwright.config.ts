@@ -32,6 +32,8 @@ export default defineConfig({
       // exercises the env-bootstrap admin path
       ADMIN_EMAIL: "bootstrap-admin@cjc.test",
       ADMIN_PASSWORD: "bootstrap-pass-123",
+      // ~9-second retention so the purge path is testable
+      ARCHIVE_RETENTION_DAYS: "0.0001",
     },
   },
 });

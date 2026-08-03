@@ -3,7 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { scheduleEpisodeAction, setEpisodeStatusAction } from "@/lib/actions";
+import {
+  scheduleEpisodeAction,
+  setEpisodeArchivedAction,
+  setEpisodeStatusAction,
+} from "@/lib/actions";
 
 export type BoardEpisode = {
   id: string;
@@ -17,6 +21,7 @@ export type BoardEpisode = {
   approvals: number;
   viewed: number;
   feedback: number;
+  reviewRound: number;
 };
 
 export function BoardCard({
@@ -60,6 +65,11 @@ export function BoardCard({
       <p className="mt-0.5 text-[11px] text-ink-faint">
         {episode.project} · {episode.sceneCount}{" "}
         {episode.sceneCount === 1 ? "scene" : "scenes"}
+        {episode.reviewRound > 1 ? (
+          <span className="ml-1 rounded-full bg-reel-soft px-1.5 py-0.5 text-[10px] font-semibold text-reel">
+            Round {episode.reviewRound}
+          </span>
+        ) : null}
       </p>
       <p className="mt-1 text-[11px] text-ink-soft" data-testid="card-stats">
         👀 {episode.viewed} viewed ·{" "}
@@ -133,6 +143,23 @@ export function BoardCard({
               Back to review
             </button>
           </>
+        ) : null}
+
+        {episode.status === "published" ? (
+          <button
+            type="button"
+            className="btn-ghost px-2.5 py-1 text-xs"
+            disabled={busy}
+            data-testid="archive-episode"
+            title="Move to the archive center; permanently deleted after the retention window"
+            onClick={() =>
+              run(() =>
+                setEpisodeArchivedAction({ episodeId: episode.id, archived: true })
+              )
+            }
+          >
+            🗄 Archive
+          </button>
         ) : null}
 
         {episode.status === "scheduled" ? (

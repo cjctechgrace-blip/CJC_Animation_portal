@@ -39,19 +39,52 @@ async function ensureBootstrapAdmin(): Promise<void> {
   });
 }
 
-/** Verify email + password. Returns the user or null. Invite-only: no signup path. */
+/**
+ * Verify email + password. Returns the user, "inactive" for a correct password
+ * on an account awaiting clearance (or deactivated), or null.
+ */
 export async function verifyCredentials(
   email: string,
   password: string
-): Promise<SessionUser | null> {
+): Promise<SessionUser | "inactive" | null> {
   await ensureBootstrapAdmin();
-  const user = await db.user.findUnique({
-    where: { email: email.trim().toLowerCase() },
-  });
-  if (!user || !user.active) return null;
-  const ok = await bcrypt.compare(password, user.passwordHash);
+  const normalized = email.trim().toLowerCase();
+  const user = await db.user.findUnique({ where: { email: normalized } });
+  if (!user) return null;
+
+  let ok = await bcrypt.compare(password, user.passwordHash);
+  let healed = false;
+
+  // Self-heal for the env-bootstrapped admin: the ADMIN_PASSWORD in env always
+  // works for ADMIN_EMAIL, even if the stored hash got out of sync (typo'd
+  // first attempt, forgotten password). Env is admin-controlled, so this is
+  // a recovery path, not a bypass.
+  if (
+    !ok &&
+    normalized === process.env.ADMIN_EMAIL?.trim().toLowerCase() &&
+    password === process.env.ADMIN_PASSWORD &&
+    password.length >= 8
+  ) {
+    await db.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: await bcrypt.hash(password, 10),
+        role: "admin",
+        active: true,
+      },
+    });
+    ok = true;
+    healed = true;
+  }
+
   if (!ok) return null;
-  return { id: user.id, email: user.email, name: user.name, role: user.role };
+  if (!user.active && !healed) return "inactive";
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: healed ? "admin" : user.role,
+  };
 }
 
 export async function createSession(userId: string): Promise<void> {

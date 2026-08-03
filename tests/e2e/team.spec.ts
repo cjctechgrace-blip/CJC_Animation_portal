@@ -75,7 +75,7 @@ test.describe("Phase 3 — team accounts & accountability", () => {
     await login(page, "editor@cjc.test");
     await page.goto("/dashboard");
     await page.click('a:has-text("Genesis — Season 1")');
-    await page.click('a[href^="/episodes/"]');
+    await page.click('a[href*="/episodes/"]:has-text("Ep 1")');
     await expect(page.getByTestId("comment-item").first()).toBeVisible();
 
     // editor authored none of the seeded top-level notes → no delete buttons
@@ -87,7 +87,7 @@ test.describe("Phase 3 — team accounts & accountability", () => {
     await login(page, "admin@cjc.test");
     await page.goto("/dashboard");
     await page.click('a:has-text("Genesis — Season 1")');
-    await page.click('a[href^="/episodes/"]');
+    await page.click('a[href*="/episodes/"]:has-text("Ep 1")');
     await expect(page.getByTestId("comment-item").first()).toBeVisible();
     expect(await page.getByTestId("delete-comment").count()).toBeGreaterThan(0);
   });
@@ -100,20 +100,20 @@ test.describe("Phase 3 — team accounts & accountability", () => {
 
     const row = page.locator('[data-testid="member-row"][data-email="reviewer@cjc.test"]');
     await row.getByTestId("toggle-active").click(); // deactivate
-    await expect(row.getByText("deactivated")).toBeVisible();
+    await expect(row.getByText(/no access/)).toBeVisible();
     await page.click('button:has-text("Sign out")');
 
     await page.goto("/login");
     await page.fill("#email", "reviewer@cjc.test");
     await page.fill("#password", "password123");
     await page.click('button[type="submit"]');
-    await expect(page.getByText(/don't match/i)).toBeVisible();
+    await expect(page.getByText(/doesn't have clearance/i)).toBeVisible();
 
     // reactivate to leave the seed data clean
     await login(page, "admin@cjc.test");
     await page.goto("/team");
     await row.getByTestId("toggle-active").click();
-    await expect(row.getByText("deactivated")).toHaveCount(0);
+    await expect(row.getByText(/no access/)).toHaveCount(0);
   });
 
   test("episode page shows the activity feed with attribution", async ({
@@ -122,7 +122,7 @@ test.describe("Phase 3 — team accounts & accountability", () => {
     await login(page, "admin@cjc.test");
     await page.goto("/dashboard");
     await page.click('a:has-text("Genesis — Season 1")');
-    await page.click('a[href^="/episodes/"]');
+    await page.click('a[href*="/episodes/"]:has-text("Ep 1")');
 
     await expect(page.getByTestId("activity-toggle")).toBeVisible();
     await page.getByTestId("activity-toggle").click();

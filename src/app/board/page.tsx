@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { requireEditor } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { sweepPublishedEpisodes } from "@/lib/actions";
+import {
+  sweepArchivedEpisodes,
+  sweepPublishedEpisodes,
+} from "@/lib/actions";
+import { ArchivedRow } from "./ArchivedRow";
 import { Header } from "@/components/Header";
 import { isYouTubeConfigured } from "@/lib/youtube";
 import { BoardCard, type BoardEpisode } from "./BoardCard";
@@ -18,8 +22,10 @@ const COLUMNS: { key: string; title: string; hint: string }[] = [
 export default async function BoardPage() {
   const user = await requireEditor();
   await sweepPublishedEpisodes();
+  await sweepArchivedEpisodes();
 
   const episodes = await db.episode.findMany({
+    where: { archivedAt: null },
     orderBy: [{ publishAt: "asc" }, { createdAt: "desc" }],
     include: {
       project: { select: { name: true } },
@@ -42,7 +48,20 @@ export default async function BoardPage() {
     approvals: e._count.approvals,
     viewed: e._count.visits,
     feedback: e.scenes.reduce((n, s) => n + s._count.comments, 0),
+    reviewRound: e.reviewRound,
   }));
+
+  const archived = await db.episode.findMany({
+    where: { archivedAt: { not: null } },
+    orderBy: { archivedAt: "asc" },
+    select: {
+      id: true,
+      title: true,
+      archivedAt: true,
+      project: { select: { name: true } },
+    },
+  });
+  const retentionDays = Number(process.env.ARCHIVE_RETENTION_DAYS ?? "14");
 
   const upcoming = cards
     .filter((c) => c.status === "scheduled" && c.publishAt)
@@ -116,6 +135,37 @@ export default async function BoardPage() {
             );
           })}
         </div>
+
+        {archived.length > 0 ? (
+          <section className="mt-8" data-testid="archive-center">
+            <h2 className="mb-1 text-sm font-bold tracking-tight">
+              🗄 Archive center
+            </h2>
+            <p className="mb-3 text-xs text-ink-faint">
+              Archived episodes are <strong>permanently deleted</strong> (clips,
+              notes, storage — everything) {retentionDays} day
+              {retentionDays === 1 ? "" : "s"} after archiving. Restore anything
+              you want to keep.
+            </p>
+            <ul className="flex flex-col gap-2">
+              {archived.map((a) => (
+                <ArchivedRow
+                  key={a.id}
+                  episode={{
+                    id: a.id,
+                    title: a.title,
+                    project: a.project.name,
+                    archivedAt: (a.archivedAt as Date).toISOString(),
+                    purgeAt: new Date(
+                      (a.archivedAt as Date).getTime() +
+                        retentionDays * 24 * 60 * 60 * 1000
+                    ).toISOString(),
+                  }}
+                />
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <p className="mt-6 text-xs text-ink-faint">
           Reviewers don&apos;t see this board — only admins and video editors.{" "}

@@ -240,6 +240,12 @@ export function EpisodeView({
             episodeScenes={episodeScenes}
             edits={selected.edits}
             viewer={viewer}
+            uploadMode={uploadMode}
+            canReplace={
+              viewer.isAdmin ||
+              viewer.isEditor ||
+              selected.createdById === viewer.id
+            }
           />
         ) : (
           <div className="card grid place-items-center px-6 py-16 text-center">

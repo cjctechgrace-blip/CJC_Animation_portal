@@ -25,6 +25,10 @@ export function DeleteEpisodeButton({
       return;
     start(async () => {
       const res = await deleteEpisodeAction({ episodeId });
+      if (!res.ok) {
+        window.alert(res.error || "Could not delete the episode.");
+        return;
+      }
       router.push(`/projects/${res.projectId ?? projectId}`);
       router.refresh();
     });
