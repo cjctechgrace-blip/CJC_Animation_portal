@@ -27,6 +27,7 @@ export async function sendEmail(input: {
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
+      signal: AbortSignal.timeout(5000),
       headers: {
         Authorization: `Bearer ${RESEND_API_KEY}`,
         "Content-Type": "application/json",

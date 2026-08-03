@@ -1019,9 +1019,15 @@ export async function toggleEpisodeApprovalAction(input: {
     await db.episodeApproval.delete({ where: { id: existing.id } });
     approved = false;
   } else {
-    await db.episodeApproval.create({
-      data: { episodeId: episode.id, userId: user.id },
-    });
+    try {
+      await db.episodeApproval.create({
+        data: { episodeId: episode.id, userId: user.id },
+      });
+    } catch {
+      // unique-index race (double-click / second tab): already approved
+      revalidatePath(`/episodes/${episode.id}`);
+      return { ok: true, approved: true };
+    }
     approved = true;
 
     const full = await db.episode.findUnique({
@@ -1063,11 +1069,14 @@ export async function signupAction(input: {
   if (input.password.length < 8) {
     return { ok: false, error: "Choose a password of at least 8 characters." };
   }
+  // per-email AND global caps: a signup flood can't mass-create pending
+  // accounts or spam admins with notification emails
   const throttleKey = `signup:${email}`;
-  if (isThrottled(throttleKey)) {
+  if (isThrottled(throttleKey) || isThrottled("signup:*global*")) {
     return { ok: false, error: "Too many attempts. Try again later." };
   }
   recordFailure(throttleKey);
+  recordFailure("signup:*global*");
 
   const existing = await db.user.findUnique({ where: { email } });
   if (existing) {
@@ -1158,7 +1167,9 @@ export async function replaceSceneVideoAction(input: {
     where: { id: scene.id },
     data: { videoFile: input.videoKey, mimeType: input.mimeType ?? "video/mp4" },
   });
-  if (scene.videoFile) await deleteObjects([scene.videoFile]);
+  // best effort — the swap is already committed; a failed purge must not
+  // surface as an error (the file is merely orphaned, not user-visible)
+  if (scene.videoFile) await deleteObjects([scene.videoFile]).catch(() => {});
 
   revalidatePath(`/episodes/${scene.episodeId}`);
   return { ok: true };
@@ -1210,7 +1221,11 @@ export async function sweepArchivedEpisodes(): Promise<void> {
       keys.push(s.videoFile);
       for (const c of s.comments) keys.push(c.frameImage);
     }
-    await deleteObjects(keys);
+    try {
+      await deleteObjects(keys);
+    } catch {
+      continue; // storage backend unhappy — keep the row, retry next sweep
+    }
     await db.episode.delete({ where: { id: episode.id } });
   }
 }

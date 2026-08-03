@@ -34,6 +34,7 @@ async function ensureBootstrapAdmin(): Promise<void> {
       email,
       name: email.split("@")[0],
       role: "admin",
+      active: true,
       passwordHash: await bcrypt.hash(password, 10),
     },
   });
@@ -53,38 +54,29 @@ export async function verifyCredentials(
   if (!user) return null;
 
   let ok = await bcrypt.compare(password, user.passwordHash);
-  let healed = false;
 
-  // Self-heal for the env-bootstrapped admin: the ADMIN_PASSWORD in env always
-  // works for ADMIN_EMAIL, even if the stored hash got out of sync (typo'd
-  // first attempt, forgotten password). Env is admin-controlled, so this is
-  // a recovery path, not a bypass.
+  // Self-heal for the env-bootstrapped admin: ADMIN_PASSWORD in env re-syncs a
+  // drifted hash — but ONLY for an account that is still an active admin.
+  // Deactivation and demotion on /team always win; the heal can never
+  // reactivate or re-promote an account.
   if (
     !ok &&
+    user.active &&
+    user.role === "admin" &&
     normalized === process.env.ADMIN_EMAIL?.trim().toLowerCase() &&
     password === process.env.ADMIN_PASSWORD &&
     password.length >= 8
   ) {
     await db.user.update({
       where: { id: user.id },
-      data: {
-        passwordHash: await bcrypt.hash(password, 10),
-        role: "admin",
-        active: true,
-      },
+      data: { passwordHash: await bcrypt.hash(password, 10) },
     });
     ok = true;
-    healed = true;
   }
 
   if (!ok) return null;
-  if (!user.active && !healed) return "inactive";
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: healed ? "admin" : user.role,
-  };
+  if (!user.active) return "inactive";
+  return { id: user.id, email: user.email, name: user.name, role: user.role };
 }
 
 export async function createSession(userId: string): Promise<void> {

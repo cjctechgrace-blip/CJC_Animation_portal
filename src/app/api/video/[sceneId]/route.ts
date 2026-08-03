@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import fs from "node:fs";
-import { Readable } from "node:stream";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { storagePathFor, isCloudStorage, publicUrl } from "@/lib/storage";
@@ -8,6 +7,37 @@ import { storagePathFor, isCloudStorage, publicUrl } from "@/lib/storage";
 export const runtime = "nodejs";
 
 const MIME_FALLBACK = "video/mp4";
+
+/** Node stream → web stream that survives client aborts: cancel() destroys the
+ * file stream, and late events can never hit a closed controller. */
+function fileStream(path: string, opts?: { start: number; end: number }): ReadableStream {
+  const nodeStream = fs.createReadStream(path, opts);
+  let closed = false;
+  return new ReadableStream({
+    start(controller) {
+      nodeStream.on("data", (chunk: string | Buffer) => {
+        if (closed) return;
+        controller.enqueue(
+          typeof chunk === "string" ? new TextEncoder().encode(chunk) : new Uint8Array(chunk)
+        );
+      });
+      nodeStream.on("end", () => {
+        if (closed) return;
+        closed = true;
+        controller.close();
+      });
+      nodeStream.on("error", (err) => {
+        if (closed) return;
+        closed = true;
+        controller.error(err);
+      });
+    },
+    cancel() {
+      closed = true;
+      nodeStream.destroy();
+    },
+  });
+}
 
 export async function GET(
   req: NextRequest,
@@ -62,10 +92,7 @@ export async function GET(
     }
 
     const chunkSize = end - start + 1;
-    const nodeStream = fs.createReadStream(filePath, { start, end });
-    const webStream = Readable.toWeb(nodeStream) as ReadableStream;
-
-    return new Response(webStream, {
+    return new Response(fileStream(filePath, { start, end }), {
       status: 206,
       headers: {
         "Content-Type": contentType,
@@ -77,9 +104,7 @@ export async function GET(
     });
   }
 
-  const nodeStream = fs.createReadStream(filePath);
-  const webStream = Readable.toWeb(nodeStream) as ReadableStream;
-  return new Response(webStream, {
+  return new Response(fileStream(filePath), {
     status: 200,
     headers: {
       "Content-Type": contentType,
