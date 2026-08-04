@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { reorderScenesAction, deleteSceneAction } from "@/lib/actions";
-import { SceneReview, type SceneComment, type Viewer } from "./SceneReview";
+import {
+  SceneReview,
+  type SceneComment,
+  type SceneVersionRef,
+  type Viewer,
+} from "./SceneReview";
 import type { UploadMode } from "@/lib/uploadScenes";
 import { AddScenesForm } from "./AddScenesForm";
 import {
@@ -18,6 +23,7 @@ export type SceneData = {
   hasVideo: boolean;
   videoSrc: string | null;
   createdById: string;
+  versions: SceneVersionRef[];
   openCount: number;
   comments: SceneComment[];
   edits: EditRecord[];
@@ -71,6 +77,8 @@ export function EpisodeView({
         c.generatedPrompt ? 1 : 0,
       ]),
       s.edits.map((e) => [e.id, e.data.length]),
+      s.versions.length,
+      s.videoSrc,
     ])
   );
   useEffect(() => {
@@ -241,6 +249,7 @@ export function EpisodeView({
             edits={selected.edits}
             viewer={viewer}
             uploadMode={uploadMode}
+            versions={selected.versions}
             canReplace={
               viewer.isAdmin ||
               viewer.isEditor ||

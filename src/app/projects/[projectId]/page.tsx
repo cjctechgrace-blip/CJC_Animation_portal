@@ -8,6 +8,7 @@ import { isCloudStorage } from "@/lib/storage";
 import { isBunnyStorage } from "@/lib/bunny";
 import { NewEpisodeForm } from "./NewEpisodeForm";
 import { DeleteProjectButton } from "./DeleteProjectButton";
+import { RenameButton } from "@/components/RenameButton";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,15 @@ export default async function ProjectPage({
           {user.role === "admin" ||
           user.role === "editor" ||
           project.createdById === user.id ? (
-            <DeleteProjectButton projectId={project.id} name={project.name} />
+            <span className="flex items-center gap-2">
+              <RenameButton
+                kind="project"
+                id={project.id}
+                currentName={project.name}
+                currentDescription={project.description}
+              />
+              <DeleteProjectButton projectId={project.id} name={project.name} />
+            </span>
           ) : null}
         </div>
 
