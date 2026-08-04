@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  finishReviewSessionAction,
   startReviewRoundAction,
   toggleEpisodeApprovalAction,
 } from "@/lib/actions";
@@ -26,6 +27,19 @@ export function ApprovalBar({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [doneMsg, setDoneMsg] = useState<string | null>(null);
+
+  async function doneReviewing() {
+    setBusy(true);
+    const res = await finishReviewSessionAction({ episodeId });
+    setDoneMsg(
+      res.ok
+        ? `✓ Editors notified (${res.noteCount} note${res.noteCount === 1 ? "" : "s"})`
+        : res.error ?? "Something went wrong."
+    );
+    setBusy(false);
+    setTimeout(() => setDoneMsg(null), 6000);
+  }
 
   async function toggle() {
     setBusy(true);
@@ -90,6 +104,22 @@ export function ApprovalBar({
         {viewedCount} viewed · {feedbackCount}{" "}
         {feedbackCount === 1 ? "note" : "notes"}
       </span>
+
+      <button
+        type="button"
+        onClick={doneReviewing}
+        disabled={busy}
+        data-testid="done-reviewing"
+        className="font-medium text-ink-soft hover:text-ink hover:underline"
+        title="Send the editors ONE summary email of the notes you left this session"
+      >
+        📨 Done reviewing — notify editors
+      </button>
+      {doneMsg ? (
+        <span className="text-ink-faint" data-testid="done-reviewing-msg">
+          {doneMsg}
+        </span>
+      ) : null}
 
       {canStartRound ? (
         <button

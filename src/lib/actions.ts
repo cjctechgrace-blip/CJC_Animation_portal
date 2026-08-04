@@ -213,6 +213,7 @@ export async function createEpisodeWithScenesAction(input: {
   title: string;
   description?: string;
   scenes: SceneInput[];
+  notifyTeam?: boolean;
 }): Promise<{ ok: boolean; episodeId?: string; error?: string }> {
   const user = await requireUser();
   const title = input.title.trim();
@@ -246,8 +247,8 @@ export async function createEpisodeWithScenesAction(input: {
     });
   }
 
-  // let the team know there's something new to review
-  {
+  // email the team only when the uploader asked for it (checkbox on the form)
+  if (input.notifyTeam) {
     const { notifyTeam, appLink } = await import("./email");
     await notifyTeam({
       roles: "all",
@@ -429,17 +430,6 @@ export async function addCommentAction(input: {
         data: { frameImage },
       });
     }
-  }
-
-  // tell the editors & admins a review note came in
-  {
-    const { notifyTeam, appLink } = await import("./email");
-    await notifyTeam({
-      roles: ["admin", "editor"],
-      excludeUserId: user.id,
-      subject: `${user.name} left a review on ${scene.episode.title}`,
-      html: `<p><strong>${user.name}</strong> pinned a note on <strong>${scene.title}</strong> (${scene.episode.title}, round ${scene.episode.reviewRound}):</p><blockquote>${body.slice(0, 300)}</blockquote><p><a href="${appLink(`/episodes/${scene.episodeId}`)}">Open the episode →</a></p>`,
-    });
   }
 
   revalidatePath(`/episodes/${scene.episodeId}`);
@@ -1325,4 +1315,56 @@ export async function renameEpisodeAction(input: {
   revalidatePath(`/projects/${episode.projectId}`);
   revalidatePath("/board");
   return { ok: true };
+}
+
+/** Reviewer finished a review pass: email editors+admins ONE summary of the
+ * notes they left on this episode (instead of an email per comment). */
+export async function finishReviewSessionAction(input: {
+  episodeId: string;
+}): Promise<{ ok: boolean; noteCount?: number; error?: string }> {
+  const user = await requireUser();
+  const episode = await db.episode.findUnique({
+    where: { id: input.episodeId },
+    select: { id: true, title: true, reviewRound: true },
+  });
+  if (!episode) return { ok: false, error: "Episode not found." };
+
+  // "this session" = the notes they left in the last 12 hours
+  const since = new Date(Date.now() - 12 * 60 * 60 * 1000);
+  const notes = await db.comment.findMany({
+    where: {
+      authorId: user.id,
+      createdAt: { gte: since },
+      scene: { episodeId: episode.id },
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      body: true,
+      timecodeMs: true,
+      scene: { select: { title: true, order: true } },
+    },
+  });
+  if (notes.length === 0) {
+    return {
+      ok: false,
+      error: "No notes from you in this session yet — pin some feedback first.",
+    };
+  }
+
+  const { notifyTeam, appLink } = await import("./email");
+  const items = notes
+    .slice(0, 8)
+    .map(
+      (n) =>
+        `<li><strong>Scene ${n.scene.order + 1}</strong>: ${n.body.slice(0, 160)}</li>`
+    )
+    .join("");
+  await notifyTeam({
+    roles: ["admin", "editor"],
+    excludeUserId: user.id,
+    subject: `${user.name} finished reviewing ${episode.title} — ${notes.length} note${notes.length === 1 ? "" : "s"}`,
+    html: `<p><strong>${user.name}</strong> wrapped up a review pass on <strong>${episode.title}</strong> (round ${episode.reviewRound}) with ${notes.length} note${notes.length === 1 ? "" : "s"}:</p><ul>${items}</ul>${notes.length > 8 ? `<p>…and ${notes.length - 8} more.</p>` : ""}<p><a href="${appLink(`/episodes/${episode.id}`)}">See all the feedback →</a></p>`,
+  });
+
+  return { ok: true, noteCount: notes.length };
 }
