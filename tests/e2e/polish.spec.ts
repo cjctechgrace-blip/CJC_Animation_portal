@@ -149,3 +149,50 @@ test.describe("Scene versions (Improvements)", () => {
     expect([200, 206]).toContain(res.status());
   });
 });
+
+test.describe("Notification flow", () => {
+  test("episode form has a notify-team option; reviewers send one done-reviewing summary", async ({
+    page,
+  }) => {
+    // the upload form exposes the email choice, checked by default
+    await login(page, "editor@cjc.test");
+    await page.goto("/dashboard");
+    await page.click('a:has-text("Genesis — Season 1")');
+    await page.getByTestId("new-episode-toggle").click();
+    await expect(page.getByTestId("notify-team")).toBeChecked();
+    await page.getByTestId("notify-team").uncheck();
+    await page.click('button:has-text("Cancel")');
+    await page.click('button:has-text("Sign out")');
+
+    // someone with no fresh notes gets a gentle nudge, not an email
+    // (the test admin hasn't authored any seeded notes)
+    await login(page, "admin@cjc.test");
+    await openEp1(page);
+    await page.getByTestId("done-reviewing").click();
+    await expect(page.getByTestId("done-reviewing-msg")).toContainText(
+      /pin some feedback first/i
+    );
+    await page.click('button:has-text("Sign out")');
+
+    // a reviewer leaves a note, then sends ONE summary with the session count
+    await login(page, "reviewer@cjc.test");
+    await openEp1(page);
+    await page.getByTestId("note-input").fill("Session note: tighten the cut at the end.");
+    await page.getByTestId("add-note").click();
+    await expect(
+      page.getByTestId("comment-item").filter({ hasText: "tighten the cut" })
+    ).toBeVisible();
+    await page.getByTestId("done-reviewing").click();
+    await expect(page.getByTestId("done-reviewing-msg")).toContainText(
+      /Editors notified \(\d+ notes?\)/
+    );
+
+    // clean up the note so other tests keep their counts
+    page.on("dialog", (d) => d.accept());
+    await page
+      .getByTestId("comment-item")
+      .filter({ hasText: "tighten the cut" })
+      .getByTestId("delete-comment")
+      .click();
+  });
+});

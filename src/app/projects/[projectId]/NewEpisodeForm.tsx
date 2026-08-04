@@ -17,6 +17,7 @@ export function NewEpisodeForm({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [notify, setNotify] = useState(true);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [pct, setPct] = useState(0);
@@ -52,6 +53,7 @@ export function NewEpisodeForm({
         title,
         description,
         scenes,
+        notifyTeam: notify,
       });
       if (!ep.ok || !ep.episodeId) throw new Error(ep.error || "Could not save.");
       router.push(`/episodes/${ep.episodeId}`);
@@ -136,6 +138,17 @@ export function NewEpisodeForm({
           {files.length > 0 ? ` ${files.length} clip(s) selected.` : ""}
         </p>
       </div>
+
+      <label className="mb-4 flex cursor-pointer items-center gap-2 text-sm text-ink-soft">
+        <input
+          type="checkbox"
+          checked={notify}
+          onChange={(e) => setNotify(e.target.checked)}
+          data-testid="notify-team"
+          className="h-4 w-4 accent-reel"
+        />
+        📣 Email the team that this episode is ready for review
+      </label>
 
       {busy && status ? (
         <div className="mb-3" data-testid="upload-status">
