@@ -13,6 +13,7 @@ export function InviteForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  const [emailed, setEmailed] = useState(false);
   const [copied, setCopied] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -23,6 +24,7 @@ export function InviteForm() {
       const res = await createInviteAction({ email, name, role });
       if (!res.ok || !res.token) throw new Error(res.error || "Could not create the invite.");
       setLink(`${window.location.origin}/invite/${res.token}`);
+      setEmailed(Boolean(res.emailed));
       setEmail("");
       setName("");
       router.refresh();
@@ -63,9 +65,16 @@ export function InviteForm() {
 
       {link ? (
         <div className="mb-3 rounded-lg border border-good/40 bg-good/5 p-3">
-          <p className="mb-2 text-xs font-medium text-good">
-            Invite created — send this link:
-          </p>
+          {emailed ? (
+            <p className="mb-2 text-xs font-medium text-good" data-testid="invite-emailed">
+              ✉️ Invitation emailed to them! Link below is a backup:
+            </p>
+          ) : (
+            <p className="mb-2 text-xs font-medium text-accent-ink" data-testid="invite-not-emailed">
+              ⚠️ Couldn&apos;t email automatically (email isn&apos;t set up yet) —
+              copy this link and send it to them yourself:
+            </p>
+          )}
           <div className="flex items-center gap-2">
             <code
               className="min-w-0 flex-1 truncate rounded bg-panel px-2 py-1 text-xs"

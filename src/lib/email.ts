@@ -17,15 +17,15 @@ export function appLink(path: string): string {
   return `${APP_URL}${path}`;
 }
 
-/** Send one email (best effort — never throws, never blocks the caller's flow). */
+/** Send one email. Never throws; returns whether Resend accepted it. */
 export async function sendEmail(input: {
   to: string[];
   subject: string;
   html: string;
-}): Promise<void> {
-  if (!isEmailConfigured() || input.to.length === 0) return;
+}): Promise<boolean> {
+  if (!isEmailConfigured() || input.to.length === 0) return false;
   try {
-    await fetch("https://api.resend.com/emails", {
+    const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       signal: AbortSignal.timeout(5000),
       headers: {
@@ -39,8 +39,10 @@ export async function sendEmail(input: {
         html: input.html,
       }),
     });
+    return res.ok;
   } catch {
     // email must never break the action that triggered it
+    return false;
   }
 }
 
@@ -53,8 +55,8 @@ export async function notifyTeam(input: {
   excludeUserId?: string;
   subject: string;
   html: string;
-}): Promise<void> {
-  if (!isEmailConfigured()) return;
+}): Promise<boolean> {
+  if (!isEmailConfigured()) return false;
   const users = await db.user.findMany({
     where: {
       active: true,
@@ -63,7 +65,7 @@ export async function notifyTeam(input: {
     },
     select: { email: true },
   });
-  await sendEmail({
+  return sendEmail({
     to: users.map((u) => u.email),
     subject: input.subject,
     html: input.html,

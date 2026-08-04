@@ -48,6 +48,8 @@ test.describe("Phase 3 — team accounts & accountability", () => {
 
     const link = await page.getByTestId("invite-link").textContent();
     expect(link).toContain("/invite/");
+    // locally email isn't configured, so the UI must say so honestly
+    await expect(page.getByTestId("invite-not-emailed")).toBeVisible();
     await page.click('button:has-text("Sign out")');
 
     // the invitee opens the link and sets their own password

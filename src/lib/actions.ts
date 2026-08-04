@@ -737,7 +737,7 @@ export async function createInviteAction(input: {
   name?: string;
   role?: string;
   kind?: "invite" | "reset";
-}): Promise<{ ok: boolean; token?: string; error?: string }> {
+}): Promise<{ ok: boolean; token?: string; emailed?: boolean; error?: string }> {
   const admin = await requireAdmin();
   const email = input.email.trim().toLowerCase();
   const kind = input.kind === "reset" ? "reset" : "invite";
@@ -770,8 +770,24 @@ export async function createInviteAction(input: {
     },
   });
 
+  // email the person their link directly (the admin still gets a copyable
+  // link as backup — and as the only path when email isn't configured)
+  const { sendEmail, appLink } = await import("./email");
+  const link = appLink(`/invite/${token}`);
+  const emailed = await sendEmail({
+    to: [email],
+    subject:
+      kind === "reset"
+        ? "Reset your CJC Animation Portal password"
+        : `${admin.name} invited you to the CJC Animation Portal`,
+    html:
+      kind === "reset"
+        ? `<p>An admin created a password-reset link for your account:</p><p><a href="${link}">Set a new password →</a></p><p>The link works once and expires in ${INVITE_DAYS} days.</p>`
+        : `<p><strong>${admin.name}</strong> invited you to join the CJC Animation Portal as a <strong>${role}</strong>.</p><p><a href="${link}">Create your account →</a></p><p>You'll pick your own password. The link works once and expires in ${INVITE_DAYS} days.</p>`,
+  });
+
   revalidatePath("/team");
-  return { ok: true, token };
+  return { ok: true, token, emailed };
 }
 
 /** Admin: revoke a pending invite/reset link. */
