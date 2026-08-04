@@ -24,6 +24,7 @@ export function MemberRow({ member, isSelf }: { member: Member; isSelf: boolean 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resetLink, setResetLink] = useState<string | null>(null);
+  const [resetEmailed, setResetEmailed] = useState(false);
   const [copied, setCopied] = useState(false);
 
   async function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
@@ -47,6 +48,7 @@ export function MemberRow({ member, isSelf }: { member: Member; isSelf: boolean 
       const res = await createInviteAction({ email: member.email, kind: "reset" });
       if (!res.ok || !res.token) throw new Error(res.error || "Could not create the link.");
       setResetLink(`${window.location.origin}/invite/${res.token}`);
+      setResetEmailed(Boolean(res.emailed));
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -136,7 +138,12 @@ export function MemberRow({ member, isSelf }: { member: Member; isSelf: boolean 
       </div>
 
       {resetLink ? (
-        <div className="mt-3 flex items-center gap-2 rounded-lg border border-line bg-panel p-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-panel p-2">
+          <span className="w-full text-[11px] text-ink-faint">
+            {resetEmailed
+              ? "✉️ Reset link emailed to them — backup below:"
+              : "⚠️ Email isn't set up — send them this link yourself:"}
+          </span>
           <code className="min-w-0 flex-1 truncate text-xs" data-testid="reset-link">
             {resetLink}
           </code>
