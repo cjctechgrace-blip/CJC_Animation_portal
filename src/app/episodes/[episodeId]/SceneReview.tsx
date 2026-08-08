@@ -9,6 +9,7 @@ import {
   generatePromptAction,
   deleteCommentAction,
   replaceSceneVideoAction,
+  setCommentPriorityAction,
 } from "@/lib/actions";
 import { uploadScenesToStorage, type UploadMode } from "@/lib/uploadScenes";
 import { formatTimecode, formatWhen, initialsOf } from "@/lib/format";
@@ -39,6 +40,7 @@ export type SceneComment = {
   body: string;
   timecodeMs: number | null;
   resolved: boolean;
+  priority: number | null;
   authorId: string;
   authorName: string;
   createdAt: string;
@@ -104,6 +106,50 @@ function MarkShape({ mark, kind }: { mark: Mark; kind: "draft" | "active" }) {
   );
 }
 
+/** Shared look for the 1-5 "how big a deal?" score. */
+function priorityClasses(p: number) {
+  if (p >= 4) return "bg-red-50 text-red-600";
+  if (p === 3) return "bg-accent/10 text-accent-ink";
+  return "bg-paper text-ink-faint";
+}
+
+function priorityWord(p: number) {
+  return p >= 4 ? "must fix" : p === 3 ? "should fix" : "nice to have";
+}
+
+/** Row of 1-5 buttons used by the composer and the note card. */
+function PriorityPicker({
+  value,
+  onPick,
+  size = "md",
+}: {
+  value: number | null;
+  onPick: (p: number | null) => void;
+  size?: "sm" | "md";
+}) {
+  const box = size === "sm" ? "h-5 w-5 text-[11px]" : "h-6 w-6 text-xs";
+  return (
+    <span className="flex items-center gap-1">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          data-testid={`priority-${n}`}
+          title={`${n} — ${priorityWord(n)}`}
+          onClick={() => onPick(value === n ? null : n)}
+          className={`grid place-items-center rounded-md border font-semibold ${box} ${
+            value === n
+              ? "border-reel bg-reel-soft text-reel"
+              : "border-line text-ink-faint hover:bg-paper"
+          }`}
+        >
+          {n}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 export function SceneReview({
   sceneId,
   hasVideo,
@@ -137,6 +183,8 @@ export function SceneReview({
   const overlayRef = useRef<HTMLDivElement>(null);
   const [currentMs, setCurrentMs] = useState(0);
   const [draft, setDraft] = useState("");
+  const [draftPriority, setDraftPriority] = useState<number | null>(null);
+  const [sortBy, setSortBy] = useState<"time" | "priority">("time");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [replaceStatus, setReplaceStatus] = useState<string | null>(null);
@@ -402,12 +450,14 @@ export function SceneReview({
         timecodeMs: ms,
         frameDataUrl,
         mark: mark ? JSON.stringify(mark) : null,
+        priority: draftPriority,
       });
       if (!res.ok) {
         setError(res.error ?? "Could not save the note.");
         return;
       }
       setDraft("");
+      setDraftPriority(null);
       setPendingMark(null);
       router.refresh();
     });
@@ -673,6 +723,19 @@ export function SceneReview({
             </div>
           ) : null}
 
+          <div className="mt-2 flex items-center gap-2 text-xs">
+            <span
+              className="text-ink-faint"
+              title="Rate every note so the team knows what to fix first — 4-5 get fixed, 1-2 are parked."
+            >
+              How big a deal?
+            </span>
+            <PriorityPicker value={draftPriority} onPick={setDraftPriority} />
+            <span className="text-ink-faint/70" data-testid="priority-word">
+              {draftPriority ? priorityWord(draftPriority) : "optional"}
+            </span>
+          </div>
+
           {replaceStatus ? (
             <p className="mt-2 text-xs font-medium text-reel" data-testid="replace-status">
               {replaceStatus}
@@ -713,7 +776,20 @@ export function SceneReview({
       <aside className="flex flex-col">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-semibold tracking-tight">Feedback</h2>
-          <div className="flex gap-2 text-xs">
+          <div className="flex items-center gap-2 text-xs">
+            {initialComments.length > 1 ? (
+              <button
+                type="button"
+                data-testid="sort-toggle"
+                onClick={() =>
+                  setSortBy(sortBy === "time" ? "priority" : "time")
+                }
+                title="Flip between newest-first and biggest-deal-first"
+                className="font-medium text-reel hover:underline"
+              >
+                {sortBy === "time" ? "↕ by priority" : "↕ by time"}
+              </button>
+            ) : null}
             <span className="rounded-full bg-accent/10 px-2 py-1 font-medium text-accent-ink">
               {openCount} open
             </span>
@@ -729,7 +805,14 @@ export function SceneReview({
           </div>
         ) : (
           <ul className="flex flex-col gap-3" data-testid="comment-list">
-            {initialComments.map((c) => (
+            {(sortBy === "priority"
+              ? [...initialComments].sort(
+                  (a, b) =>
+                    Number(a.resolved) - Number(b.resolved) ||
+                    (b.priority ?? 0) - (a.priority ?? 0)
+                )
+              : initialComments
+            ).map((c) => (
               <CommentCard
                 key={c.id}
                 comment={c}
@@ -760,6 +843,9 @@ function CommentCard({
   onChanged: () => void;
 }) {
   const canDelete = viewer.isAdmin || comment.authorId === viewer.id;
+  const canRate =
+    viewer.isAdmin || viewer.isEditor || comment.authorId === viewer.id;
+  const [rateOpen, setRateOpen] = useState(false);
   const [replyOpen, setReplyOpen] = useState(false);
   const [reply, setReply] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -791,6 +877,14 @@ function CommentCard({
   function toggleResolved() {
     startTransition(async () => {
       await toggleResolvedAction({ commentId: comment.id });
+      onChanged();
+    });
+  }
+
+  function setPriority(p: number | null) {
+    startTransition(async () => {
+      await setCommentPriorityAction({ commentId: comment.id, priority: p });
+      setRateOpen(false);
       onChanged();
     });
   }
@@ -850,6 +944,23 @@ function CommentCard({
           {initialsOf(comment.authorName)}
         </span>
         <span className="text-sm font-medium">{comment.authorName}</span>
+        {comment.priority != null ? (
+          <button
+            type="button"
+            data-testid="priority-badge"
+            title={
+              canRate
+                ? `Priority ${comment.priority} — ${priorityWord(comment.priority)}. Click to change.`
+                : `Priority ${comment.priority} — ${priorityWord(comment.priority)}`
+            }
+            onClick={() => canRate && setRateOpen((v) => !v)}
+            className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold ${priorityClasses(
+              comment.priority
+            )} ${canRate ? "hover:ring-1 hover:ring-line" : "cursor-default"}`}
+          >
+            P{comment.priority}
+          </button>
+        ) : null}
         <span
           suppressHydrationWarning
           className="ml-auto text-[11px] text-ink-faint"
@@ -857,6 +968,26 @@ function CommentCard({
           {formatWhen(comment.createdAt)}
         </span>
       </div>
+
+      {rateOpen ? (
+        <div className="mb-1.5 flex items-center gap-2 text-[11px] text-ink-faint">
+          How big a deal?
+          <PriorityPicker
+            value={comment.priority}
+            onPick={(p) => setPriority(p)}
+            size="sm"
+          />
+          {comment.priority != null ? (
+            <button
+              type="button"
+              onClick={() => setPriority(null)}
+              className="hover:text-ink hover:underline"
+            >
+              clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <p className="whitespace-pre-wrap text-sm text-ink">{comment.body}</p>
 
@@ -954,6 +1085,17 @@ function CommentCard({
         >
           {comment.resolved ? "Reopen" : "Mark resolved"}
         </button>
+        {canRate && comment.priority == null ? (
+          <button
+            type="button"
+            onClick={() => setRateOpen((v) => !v)}
+            data-testid="rate-toggle"
+            className="font-medium text-ink-faint hover:text-ink hover:underline"
+            title="Score this note 1-5 so the team knows how urgent it is"
+          >
+            ☆ Rate 1–5
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={makePrompt}

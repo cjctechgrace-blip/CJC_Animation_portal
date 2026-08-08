@@ -28,23 +28,39 @@ export function ApprovalBar({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [doneMsg, setDoneMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   async function doneReviewing() {
     setBusy(true);
-    const res = await finishReviewSessionAction({ episodeId });
-    setDoneMsg(
-      res.ok
-        ? `✓ Editors notified (${res.noteCount} note${res.noteCount === 1 ? "" : "s"})`
-        : res.error ?? "Something went wrong."
-    );
+    try {
+      const res = await finishReviewSessionAction({ episodeId });
+      setDoneMsg(
+        res.ok
+          ? `✓ Editors notified (${res.noteCount} note${res.noteCount === 1 ? "" : "s"})`
+          : res.error ?? "Something went wrong."
+      );
+    } catch {
+      setDoneMsg("Couldn't notify the editors — check your connection and try again.");
+    }
     setBusy(false);
     setTimeout(() => setDoneMsg(null), 6000);
   }
 
   async function toggle() {
     setBusy(true);
-    await toggleEpisodeApprovalAction({ episodeId });
-    router.refresh();
+    setErrorMsg(null);
+    try {
+      const res = await toggleEpisodeApprovalAction({ episodeId });
+      if (!res.ok) {
+        setErrorMsg(res.error ?? "Couldn't save your approval — please try again.");
+      } else {
+        router.refresh();
+      }
+    } catch {
+      setErrorMsg(
+        "Couldn't save your approval — check your connection and try again. If it keeps failing, tell an admin."
+      );
+    }
     setBusy(false);
   }
 
@@ -56,8 +72,13 @@ export function ApprovalBar({
     )
       return;
     setBusy(true);
-    await startReviewRoundAction({ episodeId });
-    router.refresh();
+    setErrorMsg(null);
+    try {
+      await startReviewRoundAction({ episodeId });
+      router.refresh();
+    } catch {
+      setErrorMsg("Couldn't start the next round — please try again.");
+    }
     setBusy(false);
   }
 
@@ -118,6 +139,15 @@ export function ApprovalBar({
       {doneMsg ? (
         <span className="text-ink-faint" data-testid="done-reviewing-msg">
           {doneMsg}
+        </span>
+      ) : null}
+      {errorMsg ? (
+        <span
+          role="alert"
+          className="font-medium text-red-600"
+          data-testid="approval-error"
+        >
+          {errorMsg}
         </span>
       ) : null}
 

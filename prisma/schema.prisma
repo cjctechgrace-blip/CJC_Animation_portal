@@ -199,6 +199,8 @@ model Comment {
   generatedPrompt String?
   // region/spot marker on the frame, as JSON {type,x,y,w,h} normalized 0..1.
   mark       String?
+  // reviewer's 1-5 "how big a deal is this?" score. Null = not rated.
+  priority   Int?
   parentId   String?
   parent     Comment? @relation("Thread", fields: [parentId], references: [id], onDelete: Cascade)
   replies    Comment[] @relation("Thread")
