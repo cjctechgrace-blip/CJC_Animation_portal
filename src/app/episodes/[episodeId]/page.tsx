@@ -116,6 +116,7 @@ export default async function EpisodePage({
       body: c.body,
       timecodeMs: c.timecodeMs,
       resolved: c.resolved,
+      priority: c.priority,
       authorId: c.authorId,
       authorName: c.author.name,
       createdAt: c.createdAt.toISOString(),

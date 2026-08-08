@@ -389,12 +389,19 @@ export async function reorderScenesAction(input: {
 
 /* --------------------------- comments --------------------------- */
 
+/** Clamp a note priority to the agreed 1–5 scale (null = not rated). */
+function cleanPriority(p: number | null | undefined): number | null {
+  if (p == null || !Number.isFinite(p)) return null;
+  return Math.min(5, Math.max(1, Math.round(p)));
+}
+
 export async function addCommentAction(input: {
   sceneId: string;
   body: string;
   timecodeMs: number;
   frameDataUrl?: string | null;
   mark?: string | null;
+  priority?: number | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const user = await requireUser();
   const body = input.body.trim();
@@ -418,6 +425,7 @@ export async function addCommentAction(input: {
       body,
       timecodeMs: Math.max(0, Math.round(input.timecodeMs)),
       mark: input.mark ?? null,
+      priority: cleanPriority(input.priority),
     },
   });
 
@@ -433,6 +441,34 @@ export async function addCommentAction(input: {
   }
 
   revalidatePath(`/episodes/${scene.episodeId}`);
+  return { ok: true };
+}
+
+/** Change a note's 1–5 priority. Author, editor, or admin only. */
+export async function setCommentPriorityAction(input: {
+  commentId: string;
+  priority: number | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const comment = await db.comment.findUnique({
+    where: { id: input.commentId },
+    select: {
+      id: true,
+      authorId: true,
+      parentId: true,
+      scene: { select: { episodeId: true } },
+    },
+  });
+  if (!comment || comment.parentId) return { ok: false, error: "Note not found." };
+  const allowed =
+    user.role === "admin" || user.role === "editor" || comment.authorId === user.id;
+  if (!allowed) return { ok: false, error: "Only the note's author or an editor can change its priority." };
+
+  await db.comment.update({
+    where: { id: comment.id },
+    data: { priority: cleanPriority(input.priority) },
+  });
+  revalidatePath(`/episodes/${comment.scene.episodeId}`);
   return { ok: true };
 }
 
@@ -1029,40 +1065,56 @@ export async function toggleEpisodeApprovalAction(input: {
   });
   if (!episode) return { ok: false, error: "Episode not found." };
 
-  const existing = await db.episodeApproval.findUnique({
-    where: { episodeId_userId: { episodeId: episode.id, userId: user.id } },
-  });
   let approved: boolean;
-  if (existing) {
-    await db.episodeApproval.delete({ where: { id: existing.id } });
-    approved = false;
-  } else {
-    try {
-      await db.episodeApproval.create({
-        data: { episodeId: episode.id, userId: user.id },
-      });
-    } catch {
-      // unique-index race (double-click / second tab): already approved
-      revalidatePath(`/episodes/${episode.id}`);
-      return { ok: true, approved: true };
+  try {
+    const existing = await db.episodeApproval.findUnique({
+      where: { episodeId_userId: { episodeId: episode.id, userId: user.id } },
+    });
+    if (existing) {
+      await db.episodeApproval.delete({ where: { id: existing.id } });
+      approved = false;
+    } else {
+      try {
+        await db.episodeApproval.create({
+          data: { episodeId: episode.id, userId: user.id },
+        });
+      } catch {
+        // unique-index race (double-click / second tab): already approved
+        revalidatePath(`/episodes/${episode.id}`);
+        return { ok: true, approved: true };
+      }
+      approved = true;
     }
-    approved = true;
+  } catch (e) {
+    console.error("toggleEpisodeApprovalAction failed", e);
+    return {
+      ok: false,
+      error:
+        "Couldn't save your approval — the database may be missing the approvals update (run prisma/migration_approvals.sql). Tell an admin.",
+    };
+  }
 
-    const full = await db.episode.findUnique({
-      where: { id: episode.id },
-      select: {
-        title: true,
-        reviewRound: true,
-        _count: { select: { approvals: true } },
-      },
-    });
-    const { notifyTeam, appLink } = await import("./email");
-    await notifyTeam({
-      roles: ["admin", "editor"],
-      excludeUserId: user.id,
-      subject: `${user.name} approved ${full?.title ?? "an episode"}`,
-      html: `<p><strong>${user.name}</strong> approved <strong>${full?.title}</strong> (round ${full?.reviewRound}) — ${full?._count.approvals} approval${full?._count.approvals === 1 ? "" : "s"} so far.</p><p><a href="${appLink(`/episodes/${episode.id}`)}">See the episode →</a></p>`,
-    });
+  if (approved) {
+    // Notify editors, but never let email trouble block the approval itself.
+    try {
+      const full = await db.episode.findUnique({
+        where: { id: episode.id },
+        select: {
+          title: true,
+          reviewRound: true,
+          _count: { select: { approvals: true } },
+        },
+      });
+      const { notifyTeam, appLink } = await import("./email");
+      await notifyTeam({
+        roles: ["admin", "editor"],
+        excludeUserId: user.id,
+        subject: `${user.name} approved ${full?.title ?? "an episode"}`,
+        html: `<p><strong>${user.name}</strong> approved <strong>${full?.title}</strong> (round ${full?.reviewRound}) — ${full?._count.approvals} approval${full?._count.approvals === 1 ? "" : "s"} so far.</p><p><a href="${appLink(`/episodes/${episode.id}`)}">See the episode →</a></p>`,
+      });
+    } catch (e) {
+      console.error("approval email failed (approval was saved)", e);
+    }
   }
   revalidatePath(`/episodes/${episode.id}`);
   revalidatePath("/board");

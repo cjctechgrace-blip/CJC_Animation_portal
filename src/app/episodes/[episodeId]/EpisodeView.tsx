@@ -72,6 +72,7 @@ export function EpisodeView({
       s.comments.map((c) => [
         c.id,
         c.resolved,
+        c.priority,
         c.replies.length,
         c.hasFrame,
         c.generatedPrompt ? 1 : 0,

@@ -184,6 +184,7 @@ model Comment {
   frameImage String?
   generatedPrompt String?
   mark       String?
+  priority   Int?
   parentId   String?
   parent     Comment? @relation("Thread", fields: [parentId], references: [id], onDelete: Cascade)
   replies    Comment[] @relation("Thread")
